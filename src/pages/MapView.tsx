@@ -1,15 +1,19 @@
-import { useState } from "react";
+import { useState, lazy, Suspense } from "react";
 import { motion } from "framer-motion";
-import { MapPin, Shield, AlertTriangle, Star, Search, Layers } from "lucide-react";
+import { MapPin, Shield, AlertTriangle, Star, Search, Layers, Flame, Navigation } from "lucide-react";
 import SOSButton from "@/components/SOSButton";
 import BottomNav from "@/components/BottomNav";
 
+const LeafletMap = lazy(() => import("@/components/LeafletMap"));
+
 const safetyZones = [
-  { id: 1, name: "Connaught Place", rating: 85, reviews: 234, status: "safe" as const },
-  { id: 2, name: "Karol Bagh Market", rating: 62, reviews: 128, status: "moderate" as const },
-  { id: 3, name: "Paharganj Area", rating: 28, reviews: 89, status: "unsafe" as const },
-  { id: 4, name: "Saket Mall Area", rating: 91, reviews: 312, status: "safe" as const },
-  { id: 5, name: "Old Delhi", rating: 35, reviews: 156, status: "unsafe" as const },
+  { id: 1, name: "Connaught Place", rating: 85, reviews: 234, status: "safe" as const, lat: 28.6315, lng: 77.2167 },
+  { id: 2, name: "Karol Bagh Market", rating: 62, reviews: 128, status: "moderate" as const, lat: 28.6519, lng: 77.1907 },
+  { id: 3, name: "Paharganj Area", rating: 28, reviews: 89, status: "unsafe" as const, lat: 28.6448, lng: 77.2132 },
+  { id: 4, name: "Saket Mall Area", rating: 91, reviews: 312, status: "safe" as const, lat: 28.5244, lng: 77.2066 },
+  { id: 5, name: "Old Delhi", rating: 35, reviews: 156, status: "unsafe" as const, lat: 28.6562, lng: 77.2410 },
+  { id: 6, name: "India Gate", rating: 88, reviews: 445, status: "safe" as const, lat: 28.6129, lng: 77.2295 },
+  { id: 7, name: "Chandni Chowk", rating: 42, reviews: 201, status: "moderate" as const, lat: 28.6506, lng: 77.2300 },
 ];
 
 const statusConfig = {
@@ -21,6 +25,8 @@ const statusConfig = {
 const MapView = () => {
   const [activeFilter, setActiveFilter] = useState<"all" | "safe" | "moderate" | "unsafe">("all");
   const [view, setView] = useState<"list" | "map">("map");
+  const [showHeatmap, setShowHeatmap] = useState(false);
+  const [trackLocation, setTrackLocation] = useState(false);
 
   const filtered = activeFilter === "all" ? safetyZones : safetyZones.filter((z) => z.status === activeFilter);
 
@@ -58,7 +64,7 @@ const MapView = () => {
           ))}
         </div>
 
-        {/* View toggle */}
+        {/* View toggle + Map controls */}
         <div className="flex gap-2 mb-4">
           <button
             onClick={() => setView("map")}
@@ -77,24 +83,42 @@ const MapView = () => {
             <Layers className="w-4 h-4" /> List
           </button>
         </div>
+
+        {view === "map" && (
+          <div className="flex gap-2 mb-2">
+            <button
+              onClick={() => setShowHeatmap(!showHeatmap)}
+              className={`flex-1 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
+                showHeatmap ? "bg-unsafe/15 text-unsafe border border-unsafe/30" : "bg-card text-card-foreground shadow-card"
+              }`}
+            >
+              <Flame className="w-3.5 h-3.5" /> Heatmap
+            </button>
+            <button
+              onClick={() => setTrackLocation(!trackLocation)}
+              className={`flex-1 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
+                trackLocation ? "bg-primary/15 text-primary border border-primary/30" : "bg-card text-card-foreground shadow-card"
+              }`}
+            >
+              <Navigation className="w-3.5 h-3.5" /> Live Track
+            </button>
+          </div>
+        )}
       </div>
 
-      {view === "map" ? (
-        /* Map placeholder */
-        <div className="mx-4 rounded-3xl overflow-hidden shadow-card h-64 bg-card relative">
-          <div className="absolute inset-0 bg-gradient-to-br from-safe/10 via-moderate/10 to-unsafe/10" />
-          <div className="absolute inset-0 flex items-center justify-center flex-col gap-2">
-            <MapPin className="w-10 h-10 text-primary" />
-            <p className="text-sm text-muted-foreground font-medium">Interactive map with heatmap</p>
-            <p className="text-xs text-muted-foreground">Connect Google Maps API to enable</p>
-          </div>
-          {/* Sample markers */}
-          <div className="absolute top-8 left-12 w-4 h-4 rounded-full bg-safe shadow-lg animate-pulse" />
-          <div className="absolute top-20 right-16 w-4 h-4 rounded-full bg-unsafe shadow-lg animate-pulse" />
-          <div className="absolute bottom-16 left-1/3 w-4 h-4 rounded-full bg-moderate shadow-lg animate-pulse" />
-          <div className="absolute bottom-8 right-8 w-4 h-4 rounded-full bg-safe shadow-lg animate-pulse" />
+      {view === "map" && (
+        <div className="mx-4 rounded-3xl overflow-hidden shadow-card h-80">
+          <Suspense
+            fallback={
+              <div className="w-full h-full bg-card flex items-center justify-center">
+                <div className="animate-spin w-8 h-8 border-3 border-primary border-t-transparent rounded-full" />
+              </div>
+            }
+          >
+            <LeafletMap zones={filtered} showHeatmap={showHeatmap} trackLocation={trackLocation} />
+          </Suspense>
         </div>
-      ) : null}
+      )}
 
       {/* Locations List */}
       <div className="px-4 mt-4 space-y-2">

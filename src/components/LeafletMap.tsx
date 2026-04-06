@@ -1,0 +1,197 @@
+import { useEffect, useRef, useState } from "react";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+
+// Fix default marker icons
+import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
+import markerIcon from "leaflet/dist/images/marker-icon.png";
+import markerShadow from "leaflet/dist/images/marker-shadow.png";
+
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: markerIcon2x,
+  iconUrl: markerIcon,
+  shadowUrl: markerShadow,
+});
+
+interface SafetyZone {
+  id: number;
+  name: string;
+  rating: number;
+  status: "safe" | "moderate" | "unsafe";
+  lat: number;
+  lng: number;
+}
+
+interface LeafletMapProps {
+  zones: SafetyZone[];
+  showHeatmap: boolean;
+  trackLocation: boolean;
+}
+
+const statusColors = {
+  safe: "#22c55e",
+  moderate: "#f59e0b",
+  unsafe: "#ef4444",
+};
+
+const LeafletMap = ({ zones, showHeatmap, trackLocation }: LeafletMapProps) => {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstance = useRef<L.Map | null>(null);
+  const userMarker = useRef<L.Marker | null>(null);
+  const trackLine = useRef<L.Polyline | null>(null);
+  const [userPos, setUserPos] = useState<[number, number] | null>(null);
+
+  // Initialize map
+  useEffect(() => {
+    if (!mapRef.current || mapInstance.current) return;
+
+    const map = L.map(mapRef.current, {
+      zoomControl: false,
+    }).setView([28.6139, 77.209], 12);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19,
+    }).addTo(map);
+
+    L.control.zoom({ position: "bottomright" }).addTo(map);
+
+    mapInstance.current = map;
+
+    return () => {
+      map.remove();
+      mapInstance.current = null;
+    };
+  }, []);
+
+  // Add zone markers
+  useEffect(() => {
+    const map = mapInstance.current;
+    if (!map) return;
+
+    const markers: L.CircleMarker[] = [];
+
+    zones.forEach((zone) => {
+      const color = statusColors[zone.status];
+      const marker = L.circleMarker([zone.lat, zone.lng], {
+        radius: 14,
+        fillColor: color,
+        color: color,
+        weight: 2,
+        opacity: 0.9,
+        fillOpacity: 0.35,
+      }).addTo(map);
+
+      marker.bindPopup(`
+        <div style="text-align:center;font-family:sans-serif;">
+          <strong style="font-size:14px;">${zone.name}</strong><br/>
+          <span style="color:${color};font-weight:700;font-size:18px;">${zone.rating}</span>
+          <span style="color:#888;font-size:11px;">/100</span><br/>
+          <span style="background:${color};color:#fff;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;text-transform:capitalize;">${zone.status}</span>
+        </div>
+      `);
+
+      markers.push(marker);
+    });
+
+    return () => {
+      markers.forEach((m) => m.remove());
+    };
+  }, [zones]);
+
+  // Heatmap layer
+  useEffect(() => {
+    const map = mapInstance.current;
+    if (!map) return;
+
+    let heatLayer: any = null;
+
+    if (showHeatmap && zones.length > 0) {
+      const heatData = zones.map((z) => [z.lat, z.lng, (100 - z.rating) / 100]);
+      // @ts-ignore
+      heatLayer = (L as any).heatLayer(heatData, {
+        radius: 40,
+        blur: 30,
+        maxZoom: 15,
+        max: 1.0,
+        gradient: {
+          0.2: "#22c55e",
+          0.5: "#f59e0b",
+          0.8: "#ef4444",
+          1.0: "#991b1b",
+        },
+      }).addTo(map);
+    }
+
+    return () => {
+      if (heatLayer) map.removeLayer(heatLayer);
+    };
+  }, [showHeatmap, zones]);
+
+  // Live location tracking
+  useEffect(() => {
+    const map = mapInstance.current;
+    if (!map || !trackLocation) return;
+
+    let watchId: number;
+
+    const posHistory: L.LatLngExpression[] = [];
+
+    const onSuccess = (pos: GeolocationPosition) => {
+      const latlng: [number, number] = [pos.coords.latitude, pos.coords.longitude];
+      setUserPos(latlng);
+      posHistory.push(latlng);
+
+      if (userMarker.current) {
+        userMarker.current.setLatLng(latlng);
+      } else {
+        userMarker.current = L.marker(latlng, {
+          icon: L.divIcon({
+            className: "",
+            html: `<div style="width:18px;height:18px;background:hsl(270,70%,55%);border:3px solid white;border-radius:50%;box-shadow:0 0 12px hsl(270,70%,55%,0.6);"></div>`,
+            iconSize: [18, 18],
+            iconAnchor: [9, 9],
+          }),
+        }).addTo(map);
+        map.setView(latlng, 14);
+      }
+
+      if (trackLine.current) {
+        trackLine.current.setLatLngs(posHistory);
+      } else {
+        trackLine.current = L.polyline(posHistory, {
+          color: "hsl(270,70%,55%)",
+          weight: 3,
+          opacity: 0.7,
+          dashArray: "8,6",
+        }).addTo(map);
+      }
+    };
+
+    if ("geolocation" in navigator) {
+      watchId = navigator.geolocation.watchPosition(onSuccess, () => {}, {
+        enableHighAccuracy: true,
+        maximumAge: 5000,
+      });
+    }
+
+    return () => {
+      if (watchId) navigator.geolocation.clearWatch(watchId);
+      if (userMarker.current) {
+        userMarker.current.remove();
+        userMarker.current = null;
+      }
+      if (trackLine.current) {
+        trackLine.current.remove();
+        trackLine.current = null;
+      }
+    };
+  }, [trackLocation]);
+
+  return (
+    <div ref={mapRef} className="w-full h-full rounded-3xl" style={{ minHeight: 300 }} />
+  );
+};
+
+export default LeafletMap;
