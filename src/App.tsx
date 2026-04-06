@@ -13,6 +13,7 @@ import ReportIncident from "./pages/ReportIncident.tsx";
 import EmergencyContacts from "./pages/EmergencyContacts.tsx";
 import FakeCall from "./pages/FakeCall.tsx";
 import Profile from "./pages/Profile.tsx";
+import AdminDashboard from "./pages/AdminDashboard.tsx";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -33,6 +34,7 @@ const App = () => (
             <Route path="/contacts" element={<ProtectedRoute><EmergencyContacts /></ProtectedRoute>} />
             <Route path="/fake-call" element={<ProtectedRoute><FakeCall /></ProtectedRoute>} />
             <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+            <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>
