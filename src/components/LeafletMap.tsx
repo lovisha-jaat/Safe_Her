@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import "leaflet.heat";
 
 // Fix default marker icons
 import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
