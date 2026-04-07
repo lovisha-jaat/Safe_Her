@@ -57,7 +57,7 @@ const Dashboard = () => {
         {/* Quick Actions */}
         <section className="mt-6">
           <h2 className="text-base font-bold text-foreground mb-3">Quick Actions</h2>
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-5 gap-2">
             <QuickAction icon={MapPin} label="Track" to="/map" gradient />
             <QuickAction icon={Users} label="Contacts" to="/contacts" />
             <QuickAction icon={Navigation} label="Safe Route" to="/map" />
