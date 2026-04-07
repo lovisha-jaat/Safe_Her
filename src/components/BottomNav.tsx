@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from "react-router-dom";
-import { Home, Map, FileWarning, User, Phone } from "lucide-react";
+import { Home, Map, FileWarning, User, Sparkles } from "lucide-react";
 import { motion } from "framer-motion";
 
 const navItems = [
