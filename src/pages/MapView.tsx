@@ -200,7 +200,7 @@ const MapView = () => {
               </div>
             }
           >
-            <LeafletMap zones={filtered} showHeatmap={showHeatmap} trackLocation={trackLocation} />
+            <LeafletMap zones={filtered} showHeatmap={showHeatmap} trackLocation={trackLocation} searchResult={searchResult} />
           </Suspense>
         </div>
       )}
