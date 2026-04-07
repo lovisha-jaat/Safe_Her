@@ -1,12 +1,12 @@
 import { useLocation, useNavigate } from "react-router-dom";
-import { Home, Map, FileWarning, User, Phone } from "lucide-react";
+import { Home, Map, FileWarning, User, Sparkles } from "lucide-react";
 import { motion } from "framer-motion";
 
 const navItems = [
   { path: "/dashboard", icon: Home, label: "Home" },
   { path: "/map", icon: Map, label: "Map" },
   { path: "/report", icon: FileWarning, label: "Report" },
-  { path: "/fake-call", icon: Phone, label: "Fake Call" },
+  { path: "/ai-assistant", icon: Sparkles, label: "AI Help" },
   { path: "/profile", icon: User, label: "Profile" },
 ];
 
