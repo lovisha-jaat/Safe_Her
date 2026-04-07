@@ -1,8 +1,9 @@
-import { useState, lazy, Suspense } from "react";
+import { useState, lazy, Suspense, useCallback } from "react";
 import { motion } from "framer-motion";
-import { MapPin, Shield, AlertTriangle, Star, Search, Layers, Flame, Navigation } from "lucide-react";
+import { MapPin, Shield, AlertTriangle, Star, Search, Layers, Flame, Navigation, Loader2 } from "lucide-react";
 import SOSButton from "@/components/SOSButton";
 import BottomNav from "@/components/BottomNav";
+import { toast } from "sonner";
 
 const LeafletMap = lazy(() => import("@/components/LeafletMap"));
 
@@ -16,10 +17,47 @@ const safetyZones = [
   { id: 7, name: "Chandni Chowk", rating: 42, reviews: 201, status: "moderate" as const, lat: 28.6506, lng: 77.2300 },
 ];
 
+interface SearchResult {
+  lat: number;
+  lng: number;
+  name: string;
+  safetyRating: number;
+  safetyStatus: "safe" | "moderate" | "unsafe";
+}
+
 const statusConfig = {
   safe: { color: "bg-safe", text: "text-safe", label: "Safe", icon: Shield },
   moderate: { color: "bg-moderate", text: "text-moderate", label: "Moderate", icon: AlertTriangle },
   unsafe: { color: "bg-unsafe", text: "text-unsafe", label: "Unsafe", icon: AlertTriangle },
+};
+
+// Calculate safety based on proximity to known zones
+const calculateSafety = (lat: number, lng: number) => {
+  const nearbyZones = safetyZones
+    .map((z) => ({
+      ...z,
+      dist: Math.sqrt((z.lat - lat) ** 2 + (z.lng - lng) ** 2),
+    }))
+    .sort((a, b) => a.dist - b.dist);
+
+  const closest = nearbyZones[0];
+  if (closest.dist < 0.02) {
+    return { rating: closest.rating, status: closest.status };
+  }
+
+  // Weighted average of nearby zones (closer = more weight)
+  let totalWeight = 0;
+  let weightedRating = 0;
+  nearbyZones.slice(0, 3).forEach((z) => {
+    const weight = 1 / (z.dist + 0.001);
+    totalWeight += weight;
+    weightedRating += z.rating * weight;
+  });
+
+  const rating = Math.round(weightedRating / totalWeight);
+  const status: "safe" | "moderate" | "unsafe" =
+    rating >= 70 ? "safe" : rating >= 40 ? "moderate" : "unsafe";
+  return { rating, status };
 };
 
 const MapView = () => {
@@ -27,8 +65,45 @@ const MapView = () => {
   const [view, setView] = useState<"list" | "map">("map");
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [trackLocation, setTrackLocation] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [searchResult, setSearchResult] = useState<SearchResult | null>(null);
 
   const filtered = activeFilter === "all" ? safetyZones : safetyZones.filter((z) => z.status === activeFilter);
+
+  const handleSearch = useCallback(async () => {
+    const q = searchQuery.trim();
+    if (!q) return;
+
+    setSearching(true);
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`
+      );
+      const data = await res.json();
+      if (data.length === 0) {
+        toast.error("Location not found", { description: "Try a different search term." });
+        return;
+      }
+      const { lat, lon, display_name } = data[0];
+      const parsedLat = parseFloat(lat);
+      const parsedLng = parseFloat(lon);
+      const safety = calculateSafety(parsedLat, parsedLng);
+
+      setSearchResult({
+        lat: parsedLat,
+        lng: parsedLng,
+        name: display_name.split(",").slice(0, 2).join(", "),
+        safetyRating: safety.rating,
+        safetyStatus: safety.status,
+      });
+      setView("map");
+    } catch {
+      toast.error("Search failed", { description: "Please check your internet connection." });
+    } finally {
+      setSearching(false);
+    }
+  }, [searchQuery]);
 
   return (
     <div className="min-h-screen bg-background pb-24">
