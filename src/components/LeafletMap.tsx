@@ -200,6 +200,50 @@ const LeafletMap = ({ zones, showHeatmap, trackLocation, searchResult }: Leaflet
     };
   }, [trackLocation]);
 
+  // Search result marker
+  useEffect(() => {
+    const map = mapInstance.current;
+    if (!map) return;
+
+    if (searchMarker.current) {
+      searchMarker.current.remove();
+      searchMarker.current = null;
+    }
+
+    if (searchResult) {
+      const color = statusColors[searchResult.safetyStatus];
+      const marker = L.marker([searchResult.lat, searchResult.lng], {
+        icon: L.divIcon({
+          className: "",
+          html: `<div style="width:28px;height:28px;background:${color};border:3px solid white;border-radius:50%;box-shadow:0 0 16px ${color}88;display:flex;align-items:center;justify-content:center;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3" fill="${color}"/></svg>
+          </div>`,
+          iconSize: [28, 28],
+          iconAnchor: [14, 14],
+        }),
+      }).addTo(map);
+
+      marker.bindPopup(`
+        <div style="text-align:center;font-family:sans-serif;min-width:140px;">
+          <strong style="font-size:14px;">${searchResult.name}</strong><br/>
+          <span style="color:${color};font-weight:700;font-size:20px;">${searchResult.safetyRating}</span>
+          <span style="color:#888;font-size:11px;">/100</span><br/>
+          <span style="background:${color};color:#fff;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600;text-transform:capitalize;">${searchResult.safetyStatus}</span>
+        </div>
+      `).openPopup();
+
+      searchMarker.current = marker;
+      map.setView([searchResult.lat, searchResult.lng], 14);
+    }
+
+    return () => {
+      if (searchMarker.current) {
+        searchMarker.current.remove();
+        searchMarker.current = null;
+      }
+    };
+  }, [searchResult]);
+
   return (
     <div ref={mapRef} className="w-full h-full rounded-3xl" style={{ minHeight: 300 }} />
   );
