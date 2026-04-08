@@ -7,14 +7,21 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import NotificationSettings from "@/components/settings/NotificationSettings";
+import LocationSettings from "@/components/settings/LocationSettings";
+import PrivacySettings from "@/components/settings/PrivacySettings";
+import AppearanceSettings from "@/components/settings/AppearanceSettings";
+import AlertHistory from "@/components/settings/AlertHistory";
+import VerificationSettings from "@/components/settings/VerificationSettings";
 
 const menuItems = [
-  { icon: Bell, label: "Notifications", desc: "Alert preferences" },
-  { icon: MapPin, label: "Location Settings", desc: "Tracking & sharing" },
-  { icon: Lock, label: "Privacy & Security", desc: "Data protection" },
-  { icon: Moon, label: "Appearance", desc: "Dark mode & themes" },
-  { icon: Clock, label: "Alert History", desc: "Past SOS alerts" },
-  { icon: Shield, label: "Verification", desc: "ID & face verification" },
+  { icon: Bell, label: "Notifications", desc: "Alert preferences", key: "notifications" },
+  { icon: MapPin, label: "Location Settings", desc: "Tracking & sharing", key: "location" },
+  { icon: Lock, label: "Privacy & Security", desc: "Data protection", key: "privacy" },
+  { icon: Moon, label: "Appearance", desc: "Dark mode & themes", key: "appearance" },
+  { icon: Clock, label: "Alert History", desc: "Past SOS alerts", key: "history" },
+  { icon: Shield, label: "Verification", desc: "ID & face verification", key: "verification" },
 ];
 
 const Profile = () => {
@@ -32,6 +39,7 @@ const Profile = () => {
   const [editName, setEditName] = useState("");
   const [editPhone, setEditPhone] = useState("");
   const [saving, setSaving] = useState(false);
+  const [openSheet, setOpenSheet] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -80,6 +88,20 @@ const Profile = () => {
   const memberSince = profile?.created_at
     ? new Date(profile.created_at).getFullYear()
     : new Date().getFullYear();
+
+  const renderSheetContent = () => {
+    switch (openSheet) {
+      case "notifications": return <NotificationSettings />;
+      case "location": return <LocationSettings />;
+      case "privacy": return <PrivacySettings />;
+      case "appearance": return <AppearanceSettings />;
+      case "history": return <AlertHistory />;
+      case "verification": return <VerificationSettings verified={profile?.verified ?? false} />;
+      default: return null;
+    }
+  };
+
+  const sheetTitle = menuItems.find((m) => m.key === openSheet)?.label || "";
 
   return (
     <div className="min-h-screen bg-background pb-24">
@@ -195,6 +217,7 @@ const Profile = () => {
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: i * 0.05 }}
+              onClick={() => setOpenSheet(item.key)}
               className="w-full bg-card rounded-2xl p-4 shadow-card flex items-center gap-3"
             >
               <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
@@ -218,6 +241,18 @@ const Profile = () => {
           <span className="text-sm font-semibold text-unsafe">Log Out</span>
         </button>
       </div>
+
+      {/* Settings Sheet */}
+      <Sheet open={!!openSheet} onOpenChange={(open) => !open && setOpenSheet(null)}>
+        <SheetContent side="bottom" className="rounded-t-2xl max-h-[85vh] overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>{sheetTitle}</SheetTitle>
+          </SheetHeader>
+          <div className="py-4">
+            {renderSheetContent()}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <SOSButton />
       <BottomNav />
