@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { Shield, MapPin, Bell, Phone, Users, FileWarning, Navigation, ChevronRight } from "lucide-react";
-import heroImage from "@/assets/hero-shield.jpg";
+import logoImage from "/logo.png";
 
 const features = [
   { icon: Shield, title: "Emergency SOS", desc: "One-tap alert to contacts & authorities" },
@@ -38,11 +38,11 @@ const Index = () => {
             className="mx-auto mb-6"
           >
             <img
-              src={heroImage}
-              alt="Safety Shield"
-              width={800}
-              height={600}
-              className="w-40 h-40 mx-auto object-contain rounded-3xl"
+              src={logoImage}
+              alt="Safe Her Logo"
+              width={512}
+              height={512}
+              className="w-40 h-40 mx-auto object-contain"
             />
           </motion.div>
           <motion.h1
@@ -51,9 +51,9 @@ const Index = () => {
             transition={{ delay: 0.2 }}
             className="text-4xl font-extrabold text-primary-foreground mb-3 leading-tight"
           >
-            Your Safety,
+            Safe Her
             <br />
-            Our Priority
+            Your Safety, Our Priority
           </motion.h1>
           <motion.p
             initial={{ opacity: 0, y: 20 }}
