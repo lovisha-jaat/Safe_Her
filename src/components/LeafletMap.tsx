@@ -55,7 +55,7 @@ const statusColors = {
   unsafe: "#ef4444",
 };
 
-const LeafletMap = ({ zones, showHeatmap, trackLocation, searchResult }: LeafletMapProps) => {
+const LeafletMap = ({ zones, showHeatmap, trackLocation, searchResult, incidents = [] }: LeafletMapProps) => {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<L.Map | null>(null);
   const userMarker = useRef<L.Marker | null>(null);
