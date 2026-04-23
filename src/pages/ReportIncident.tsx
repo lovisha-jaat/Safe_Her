@@ -55,7 +55,8 @@ const ReportIncident = () => {
     });
 
     if (error) {
-      toast.error("Failed to submit report: " + error.message);
+      console.error("Report submission error:", error);
+      toast.error("Failed to submit report. Please try again.");
     } else {
       setSubmitted(true);
     }
