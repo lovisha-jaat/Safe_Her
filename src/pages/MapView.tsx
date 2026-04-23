@@ -1,11 +1,21 @@
-import { useState, lazy, Suspense, useCallback } from "react";
+import { useState, lazy, Suspense, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
-import { MapPin, Shield, AlertTriangle, Star, Search, Layers, Flame, Navigation, Loader2 } from "lucide-react";
+import { MapPin, Shield, AlertTriangle, Star, Search, Layers, Flame, Navigation, Loader2, FileWarning } from "lucide-react";
 import SOSButton from "@/components/SOSButton";
 import BottomNav from "@/components/BottomNav";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 const LeafletMap = lazy(() => import("@/components/LeafletMap"));
+
+interface IncidentMarker {
+  id: string;
+  lat: number;
+  lng: number;
+  type: string;
+  description: string;
+  created_at: string;
+}
 
 const safetyZones = [
   { id: 1, name: "Connaught Place", rating: 85, reviews: 234, status: "safe" as const, lat: 28.6315, lng: 77.2167 },
@@ -65,9 +75,44 @@ const MapView = () => {
   const [view, setView] = useState<"list" | "map">("map");
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [trackLocation, setTrackLocation] = useState(false);
+  const [showIncidents, setShowIncidents] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [searchResult, setSearchResult] = useState<SearchResult | null>(null);
+  const [incidents, setIncidents] = useState<IncidentMarker[]>([]);
+
+  // Load community-verified incident reports
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const { data, error } = await supabase
+        .from("incident_reports")
+        .select("id, location_lat, location_lng, incident_type, description, created_at, status")
+        .eq("status", "verified")
+        .not("location_lat", "is", null)
+        .not("location_lng", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(200);
+      if (!mounted) return;
+      if (error) {
+        console.error("Failed to load incidents:", error);
+        return;
+      }
+      setIncidents(
+        (data ?? []).map((r) => ({
+          id: r.id,
+          lat: r.location_lat as number,
+          lng: r.location_lng as number,
+          type: r.incident_type,
+          description: r.description,
+          created_at: r.created_at,
+        }))
+      );
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const filtered = activeFilter === "all" ? safetyZones : safetyZones.filter((z) => z.status === activeFilter);
 
@@ -77,12 +122,19 @@ const MapView = () => {
 
     setSearching(true);
     try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`
-      );
-      const data = await res.json();
-      if (data.length === 0) {
-        toast.error("Location not found", { description: "Try a different search term." });
+      // Bias to India and accept villages/hamlets; fall back to global search
+      const url1 = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=5&countrycodes=in&q=${encodeURIComponent(q)}`;
+      let res = await fetch(url1, { headers: { "Accept-Language": "en" } });
+      let data = await res.json();
+      if (!Array.isArray(data) || data.length === 0) {
+        const url2 = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=5&q=${encodeURIComponent(q)}`;
+        res = await fetch(url2, { headers: { "Accept-Language": "en" } });
+        data = await res.json();
+      }
+      if (!Array.isArray(data) || data.length === 0) {
+        toast.error("Location not found", {
+          description: "Try adding district or state, e.g. 'Khurdi, Yamunanagar, Haryana'.",
+        });
         return;
       }
       const { lat, lon, display_name } = data[0];
@@ -187,6 +239,14 @@ const MapView = () => {
             >
               <Navigation className="w-3.5 h-3.5" /> Live Track
             </button>
+            <button
+              onClick={() => setShowIncidents(!showIncidents)}
+              className={`flex-1 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
+                showIncidents ? "bg-moderate/15 text-moderate border border-moderate/30" : "bg-card text-card-foreground shadow-card"
+              }`}
+            >
+              <FileWarning className="w-3.5 h-3.5" /> Reports ({incidents.length})
+            </button>
           </div>
         )}
       </div>
@@ -200,7 +260,13 @@ const MapView = () => {
               </div>
             }
           >
-            <LeafletMap zones={filtered} showHeatmap={showHeatmap} trackLocation={trackLocation} searchResult={searchResult} />
+            <LeafletMap
+              zones={filtered}
+              showHeatmap={showHeatmap}
+              trackLocation={trackLocation}
+              searchResult={searchResult}
+              incidents={showIncidents ? incidents : []}
+            />
           </Suspense>
         </div>
       )}
