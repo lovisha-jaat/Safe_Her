@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Users, Plus, Phone, Trash2, Star, GripVertical } from "lucide-react";
+import { Users, Plus, Phone, Trash2, Star, GripVertical, UserPlus } from "lucide-react";
 import SOSButton from "@/components/SOSButton";
 import BottomNav from "@/components/BottomNav";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface Contact {
   id: number;
@@ -12,14 +13,32 @@ interface Contact {
   isPrimary: boolean;
 }
 
-const initialContacts: Contact[] = [
-  { id: 1, name: "Mom", phone: "+91 98765 43210", relation: "Mother", isPrimary: true },
-  { id: 2, name: "Riya", phone: "+91 87654 32109", relation: "Best Friend", isPrimary: false },
-  { id: 3, name: "Dad", phone: "+91 76543 21098", relation: "Father", isPrimary: false },
-];
+const STORAGE_KEY_PREFIX = "safeher.contacts.";
 
 const EmergencyContacts = () => {
-  const [contacts, setContacts] = useState(initialContacts);
+  const { user } = useAuth();
+  const storageKey = user ? `${STORAGE_KEY_PREFIX}${user.id}` : null;
+
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  // Load from localStorage when user is available
+  useEffect(() => {
+    if (!storageKey) return;
+    try {
+      const raw = localStorage.getItem(storageKey);
+      setContacts(raw ? JSON.parse(raw) : []);
+    } catch {
+      setContacts([]);
+    }
+    setLoaded(true);
+  }, [storageKey]);
+
+  // Persist whenever contacts change
+  useEffect(() => {
+    if (!storageKey || !loaded) return;
+    localStorage.setItem(storageKey, JSON.stringify(contacts));
+  }, [contacts, storageKey, loaded]);
   const [showAdd, setShowAdd] = useState(false);
   const [newName, setNewName] = useState("");
   const [newPhone, setNewPhone] = useState("");
@@ -106,6 +125,25 @@ const EmergencyContacts = () => {
             <span className="font-semibold text-foreground">Tip:</span> Star contacts to set them as priority. They'll be notified first during emergencies.
           </p>
         </div>
+
+        {/* Empty state */}
+        {loaded && contacts.length === 0 && (
+          <div className="bg-card rounded-2xl p-8 shadow-card text-center">
+            <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
+              <UserPlus className="w-7 h-7 text-primary" />
+            </div>
+            <p className="text-sm font-semibold text-card-foreground mb-1">No contacts yet</p>
+            <p className="text-xs text-muted-foreground mb-4">
+              Add trusted people who'll be notified during emergencies
+            </p>
+            <button
+              onClick={() => setShowAdd(true)}
+              className="px-5 py-2.5 rounded-xl gradient-primary text-primary-foreground text-sm font-semibold shadow-soft"
+            >
+              Add your first contact
+            </button>
+          </div>
+        )}
 
         {/* Contacts list */}
         <div className="space-y-2">

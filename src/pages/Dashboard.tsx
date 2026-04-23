@@ -52,7 +52,7 @@ const Dashboard = () => {
         </div>
 
         {/* Safety Score */}
-        <SafetyScoreCard score={78} label="Current Area Safety" />
+        <SafetyScoreCard label="Current Area Safety" />
       </div>
 
       <div className="px-4 -mt-2">
