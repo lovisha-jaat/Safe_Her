@@ -14,6 +14,39 @@ export type Database = {
   }
   public: {
     Tables: {
+      emergency_contacts: {
+        Row: {
+          created_at: string
+          id: string
+          is_primary: boolean
+          name: string
+          phone: string
+          relation: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_primary?: boolean
+          name: string
+          phone: string
+          relation?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_primary?: boolean
+          name?: string
+          phone?: string
+          relation?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       incident_reports: {
         Row: {
           created_at: string
@@ -86,6 +119,45 @@ export type Database = {
           updated_at?: string
           user_id?: string
           verified?: boolean
+        }
+        Relationships: []
+      }
+      sos_alert_logs: {
+        Row: {
+          created_at: string
+          failed_count: number
+          id: string
+          location_lat: number | null
+          location_lng: number | null
+          location_url: string | null
+          message: string
+          recipients: string[]
+          sent_count: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          failed_count?: number
+          id?: string
+          location_lat?: number | null
+          location_lng?: number | null
+          location_url?: string | null
+          message: string
+          recipients?: string[]
+          sent_count?: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          failed_count?: number
+          id?: string
+          location_lat?: number | null
+          location_lng?: number | null
+          location_url?: string | null
+          message?: string
+          recipients?: string[]
+          sent_count?: number
+          user_id?: string
         }
         Relationships: []
       }

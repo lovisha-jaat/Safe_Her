@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Shield, MapPinOff } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 
 interface SafetyScoreCardProps {
   label: string;
@@ -12,31 +13,93 @@ type LocationState =
   | { status: "unsupported" }
   | { status: "ok"; score: number };
 
-// Deterministic pseudo-score from coordinates so the same area = same score
-const scoreFromCoords = (lat: number, lng: number) => {
-  const seed = Math.abs(Math.sin(lat * 12.9898 + lng * 78.233) * 43758.5453);
-  const fraction = seed - Math.floor(seed);
-  return Math.round(55 + fraction * 40); // 55-95 range
+type IncidentRow = {
+  location_lat: number | null;
+  location_lng: number | null;
+  created_at: string;
+};
+
+const distanceKm = (lat1: number, lng1: number, lat2: number, lng2: number) => {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const earthRadiusKm = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthRadiusKm * c;
+};
+
+const scoreFromIncidents = (lat: number, lng: number, incidents: IncidentRow[]) => {
+  const nearby = incidents
+    .filter((i) => i.location_lat !== null && i.location_lng !== null)
+    .map((i) => {
+      const km = distanceKm(lat, lng, i.location_lat as number, i.location_lng as number);
+      const ageDays = Math.max(
+        0,
+        (Date.now() - new Date(i.created_at).getTime()) / (1000 * 60 * 60 * 24)
+      );
+      return { km, ageDays };
+    })
+    .filter((i) => i.km <= 5);
+
+  // If no nearby incidents, area is considered relatively safer.
+  if (nearby.length === 0) return 88;
+
+  // Closer + more recent incidents reduce safety score more.
+  const riskPoints = nearby.reduce((sum, i) => {
+    const distanceWeight = i.km <= 1 ? 1 : i.km <= 3 ? 0.65 : 0.4;
+    const recencyWeight = i.ageDays <= 7 ? 1 : i.ageDays <= 30 ? 0.7 : 0.45;
+    return sum + distanceWeight * recencyWeight * 8;
+  }, 0);
+
+  return Math.max(20, Math.min(95, Math.round(95 - riskPoints)));
 };
 
 const SafetyScoreCard = ({ label }: SafetyScoreCardProps) => {
   const [state, setState] = useState<LocationState>({ status: "loading" });
 
-  useEffect(() => {
+  const requestAndLoadScore = async () => {
     if (!("geolocation" in navigator)) {
       setState({ status: "unsupported" });
       return;
     }
+
+    setState({ status: "loading" });
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setState({
-          status: "ok",
-          score: scoreFromCoords(pos.coords.latitude, pos.coords.longitude),
-        });
+      async (pos) => {
+        const { data, error } = await supabase
+          .from("incident_reports")
+          .select("location_lat,location_lng,created_at")
+          .eq("status", "verified")
+          .not("location_lat", "is", null)
+          .not("location_lng", "is", null)
+          .order("created_at", { ascending: false })
+          .limit(300);
+
+        if (error) {
+          // Fallback if API fails; avoid breaking dashboard render.
+          setState({ status: "ok", score: 78 });
+          return;
+        }
+
+        const score = scoreFromIncidents(
+          pos.coords.latitude,
+          pos.coords.longitude,
+          (data ?? []) as IncidentRow[]
+        );
+        setState({ status: "ok", score });
       },
-      () => setState({ status: "denied" }),
-      { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
+      () => {
+        setState({ status: "denied" });
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
     );
+  };
+
+  useEffect(() => {
+    void requestAndLoadScore();
   }, []);
 
   const score = state.status === "ok" ? state.score : 0;
@@ -73,6 +136,14 @@ const SafetyScoreCard = ({ label }: SafetyScoreCardProps) => {
                   ? "Enable location to see your area's safety score"
                   : "Location not available on this device"}
             </p>
+            {state.status === "denied" && (
+              <button
+                onClick={() => void requestAndLoadScore()}
+                className="mt-2 text-xs font-semibold text-primary underline underline-offset-2"
+              >
+                Enable my location
+              </button>
+            )}
           </div>
         </div>
       </motion.div>

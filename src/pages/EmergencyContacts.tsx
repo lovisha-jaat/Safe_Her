@@ -4,64 +4,209 @@ import { Users, Plus, Phone, Trash2, Star, GripVertical, UserPlus } from "lucide
 import SOSButton from "@/components/SOSButton";
 import BottomNav from "@/components/BottomNav";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 interface Contact {
-  id: number;
+  id: string;
   name: string;
   phone: string;
   relation: string;
   isPrimary: boolean;
 }
 
-const STORAGE_KEY_PREFIX = "safeher.contacts.";
+const LEGACY_CONTACTS_KEY_PREFIX = "safeher.contacts.";
 
 const EmergencyContacts = () => {
   const { user } = useAuth();
-  const storageKey = user ? `${STORAGE_KEY_PREFIX}${user.id}` : null;
 
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [useLocalFallback, setUseLocalFallback] = useState(false);
 
-  // Load from localStorage when user is available
-  useEffect(() => {
-    if (!storageKey) return;
+  const localKey = user ? `${LEGACY_CONTACTS_KEY_PREFIX}${user.id}` : null;
+
+  const readLocalContacts = (): Contact[] => {
+    if (!localKey) return [];
     try {
-      const raw = localStorage.getItem(storageKey);
-      setContacts(raw ? JSON.parse(raw) : []);
+      const raw = localStorage.getItem(localKey);
+      const parsed = raw ? (JSON.parse(raw) as Contact[]) : [];
+      return parsed.map((c, i) => ({
+        id: c.id || `local-${Date.now()}-${i}`,
+        name: c.name ?? "",
+        phone: c.phone ?? "",
+        relation: c.relation ?? "",
+        isPrimary: !!c.isPrimary,
+      }));
     } catch {
-      setContacts([]);
+      return [];
     }
-    setLoaded(true);
-  }, [storageKey]);
+  };
 
-  // Persist whenever contacts change
+  const writeLocalContacts = (next: Contact[]) => {
+    if (!localKey) return;
+    localStorage.setItem(localKey, JSON.stringify(next));
+  };
+
+  // Load contacts from Supabase when user is available
   useEffect(() => {
-    if (!storageKey || !loaded) return;
-    localStorage.setItem(storageKey, JSON.stringify(contacts));
-  }, [contacts, storageKey, loaded]);
+    if (!user) return;
+    const fetchContacts = async () => {
+      const { data, error } = await supabase
+        .from("emergency_contacts")
+        .select("id,name,phone,relation,is_primary")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: true });
+
+      if (error) {
+        const local = readLocalContacts();
+        setContacts(local);
+        setUseLocalFallback(true);
+        toast.warning("Using local contacts mode");
+      } else {
+        const mapped = (data ?? []).map((c) => ({
+          id: c.id,
+          name: c.name,
+          phone: c.phone,
+          relation: c.relation ?? "",
+          isPrimary: c.is_primary,
+        }));
+        setContacts(mapped);
+        writeLocalContacts(mapped);
+        setUseLocalFallback(false);
+      }
+      setLoaded(true);
+    };
+    fetchContacts();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
   const [showAdd, setShowAdd] = useState(false);
   const [newName, setNewName] = useState("");
   const [newPhone, setNewPhone] = useState("");
   const [newRelation, setNewRelation] = useState("");
 
-  const addContact = () => {
-    if (!newName || !newPhone) return;
-    setContacts([
+  const addContact = async () => {
+    if (!newName || !newPhone || !user) return;
+
+    const localContact: Contact = {
+      id: `local-${Date.now()}`,
+      name: newName,
+      phone: newPhone,
+      relation: newRelation,
+      isPrimary: false,
+    };
+
+    // If backend is unavailable, keep working with local contacts.
+    if (useLocalFallback) {
+      const next = [...contacts, localContact];
+      setContacts(next);
+      writeLocalContacts(next);
+      setNewName("");
+      setNewPhone("");
+      setNewRelation("");
+      setShowAdd(false);
+      toast.success("Contact added (local mode)");
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("emergency_contacts")
+      .insert({
+        user_id: user.id,
+        name: newName,
+        phone: newPhone,
+        relation: newRelation || null,
+        is_primary: false,
+      })
+      .select("id,name,phone,relation,is_primary")
+      .single();
+
+    if (error || !data) {
+      // Fall back to local and keep user unblocked.
+      const next = [...contacts, localContact];
+      setContacts(next);
+      writeLocalContacts(next);
+      setUseLocalFallback(true);
+      toast.warning("Saved contact locally (server unavailable)");
+      setNewName("");
+      setNewPhone("");
+      setNewRelation("");
+      setShowAdd(false);
+      return;
+    }
+
+    const next = [
       ...contacts,
-      { id: Date.now(), name: newName, phone: newPhone, relation: newRelation, isPrimary: false },
-    ]);
+      {
+        id: data.id,
+        name: data.name,
+        phone: data.phone,
+        relation: data.relation ?? "",
+        isPrimary: data.is_primary,
+      },
+    ];
+    setContacts(next);
+    writeLocalContacts(next);
     setNewName("");
     setNewPhone("");
     setNewRelation("");
     setShowAdd(false);
+    toast.success("Contact added");
   };
 
-  const removeContact = (id: number) => {
-    setContacts(contacts.filter((c) => c.id !== id));
+  const removeContact = async (id: string) => {
+    const next = contacts.filter((c) => c.id !== id);
+
+    if (!useLocalFallback) {
+      const { error } = await supabase.from("emergency_contacts").delete().eq("id", id);
+      if (error) {
+        setUseLocalFallback(true);
+        toast.warning("Removed in local mode (server unavailable)");
+      }
+    }
+
+    setContacts(next);
+    writeLocalContacts(next);
   };
 
-  const togglePrimary = (id: number) => {
-    setContacts(contacts.map((c) => ({ ...c, isPrimary: c.id === id ? !c.isPrimary : c.isPrimary })));
+  const togglePrimary = async (id: string) => {
+    if (!user) return;
+    const target = contacts.find((c) => c.id === id);
+    if (!target) return;
+    const nextPrimary = !target.isPrimary;
+    const next = contacts.map((c) => ({ ...c, isPrimary: c.id === id ? nextPrimary : false }));
+
+    if (!useLocalFallback) {
+      const { error: clearError } = await supabase
+        .from("emergency_contacts")
+        .update({ is_primary: false })
+        .eq("user_id", user.id);
+      if (clearError) {
+        setUseLocalFallback(true);
+        setContacts(next);
+        writeLocalContacts(next);
+        toast.warning("Primary updated in local mode");
+        return;
+      }
+
+      if (nextPrimary) {
+        const { error: setError } = await supabase
+          .from("emergency_contacts")
+          .update({ is_primary: true })
+          .eq("id", id)
+          .eq("user_id", user.id);
+        if (setError) {
+          setUseLocalFallback(true);
+          setContacts(next);
+          writeLocalContacts(next);
+          toast.warning("Primary updated in local mode");
+          return;
+        }
+      }
+    }
+
+    setContacts(next);
+    writeLocalContacts(next);
   };
 
   return (

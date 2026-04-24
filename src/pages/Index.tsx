@@ -121,11 +121,10 @@ const Index = () => {
       {/* Stats */}
       <section className="px-6 py-10">
         <div className="gradient-primary rounded-3xl p-6 text-center shadow-soft">
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             {[
-              { num: "50K+", label: "Users Protected" },
-              { num: "1M+", label: "Alerts Sent" },
-              { num: "99%", label: "Response Rate" },
+              { num: "<5 sec", label: "SOS Alert Delivery" },
+              { num: "2x", label: "Faster Emergency Result" },
             ].map((s) => (
               <div key={s.label}>
                 <p className="text-2xl font-extrabold text-primary-foreground">{s.num}</p>

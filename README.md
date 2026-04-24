@@ -97,6 +97,57 @@ Environment variables are auto-managed by Lovable Cloud. The `.env` file include
 
 ---
 
+## 🚨 Automatic SOS SMS (Supabase + Twilio)
+
+The app includes a Supabase Edge Function at `supabase/functions/sos-alert/index.ts` that sends SOS SMS alerts automatically to registered emergency contacts.
+
+### 1) One-time prerequisites
+
+- Twilio account with:
+  - `TWILIO_ACCOUNT_SID`
+  - `TWILIO_AUTH_TOKEN`
+  - A valid SMS sender number (`TWILIO_FROM_NUMBER`)
+- Supabase CLI login
+
+```bash
+npx supabase login
+```
+
+### 2) Apply SOS database migration
+
+This creates:
+- `emergency_contacts`
+- `sos_alert_logs`
+
+```bash
+npx supabase db push --project-ref zivrfqepgytsvuvandun
+```
+
+### 3) Configure function secrets
+
+Set required secrets on Supabase project:
+
+```bash
+npx supabase secrets set --project-ref zivrfqepgytsvuvandun TWILIO_ACCOUNT_SID=YOUR_TWILIO_ACCOUNT_SID
+npx supabase secrets set --project-ref zivrfqepgytsvuvandun TWILIO_AUTH_TOKEN=YOUR_TWILIO_AUTH_TOKEN
+npx supabase secrets set --project-ref zivrfqepgytsvuvandun TWILIO_FROM_NUMBER=+1XXXXXXXXXX
+npx supabase secrets set --project-ref zivrfqepgytsvuvandun SUPABASE_SERVICE_ROLE_KEY=YOUR_SUPABASE_SERVICE_ROLE_KEY
+```
+
+### 4) Deploy the SOS edge function
+
+```bash
+npx supabase functions deploy sos-alert --project-ref zivrfqepgytsvuvandun
+```
+
+### 5) Verify
+
+- Add emergency contacts in the app.
+- Tap SOS.
+- SMS should be sent automatically from backend (without opening SMS app).
+
+---
+
 ## 📂 Project Structure
 
 ```

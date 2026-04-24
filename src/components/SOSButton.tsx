@@ -1,115 +1,138 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ShieldAlert, X, Phone, MessageSquare } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
-interface Contact {
-  id: number;
-  name: string;
-  phone: string;
-  relation: string;
-  isPrimary: boolean;
-}
-
-const STORAGE_KEY_PREFIX = "safeher.contacts.";
+const LEGACY_CONTACTS_KEY_PREFIX = "safeher.contacts.";
 
 const SOSButton = () => {
   const { user } = useAuth();
   const [isActive, setIsActive] = useState(false);
-  const [countdown, setCountdown] = useState(5);
+  const [sending, setSending] = useState(false);
   const [alertSent, setAlertSent] = useState(false);
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
 
-  const loadContacts = useCallback(() => {
-    if (!user) return [] as Contact[];
-    try {
-      const raw = localStorage.getItem(`${STORAGE_KEY_PREFIX}${user.id}`);
-      const list: Contact[] = raw ? JSON.parse(raw) : [];
-      setContacts(list);
-      return list;
-    } catch {
-      setContacts([]);
-      return [];
-    }
-  }, [user]);
-
-  const cancelSOS = useCallback(() => {
+  const cancelSOS = () => {
     setIsActive(false);
-    setCountdown(5);
     setAlertSent(false);
-  }, []);
-
-  // When activated: fetch contacts + location
-  useEffect(() => {
-    if (!isActive) return;
-    loadContacts();
-    if ("geolocation" in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (p) => setCoords({ lat: p.coords.latitude, lng: p.coords.longitude }),
-        () => setCoords(null),
-        { enableHighAccuracy: true, timeout: 5000 }
-      );
-    }
-  }, [isActive, loadContacts]);
-
-  // Countdown + auto-trigger SMS to all contacts
-  useEffect(() => {
-    if (!isActive || alertSent) return;
-    if (countdown <= 0) {
-      setAlertSent(true);
-      // Auto-send SMS to primary (or first) contact
-      const list = contacts;
-      const primary = list.find((c) => c.isPrimary) ?? list[0];
-      if (primary) {
-        const locText = coords
-          ? `https://maps.google.com/?q=${coords.lat},${coords.lng}`
-          : "Location unavailable";
-        const body = encodeURIComponent(
-          `🚨 EMERGENCY SOS from SafeHer. I need help. My location: ${locText}`
-        );
-        // Try to open SMS app
-        window.location.href = `sms:${primary.phone}?body=${body}`;
-        toast.success(`SMS opened for ${primary.name}`);
-      } else {
-        toast.warning("No emergency contacts. Add one in Contacts.");
-      }
-      return;
-    }
-    const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
-    return () => clearTimeout(timer);
-  }, [isActive, countdown, alertSent, contacts, coords]);
-
-  const callPrimary = () => {
-    const primary = contacts.find((c) => c.isPrimary) ?? contacts[0];
-    if (!primary) {
-      toast.warning("No emergency contacts saved.");
-      return;
-    }
-    window.location.href = `tel:${primary.phone}`;
+    setSending(false);
   };
 
-  const smsAll = () => {
-    if (contacts.length === 0) {
-      toast.warning("No emergency contacts saved.");
-      return;
+  const getCoords = async () => {
+    if (!("geolocation" in navigator)) return null;
+    return new Promise<{ lat: number; lng: number } | null>((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
+        () => resolve(null),
+        { enableHighAccuracy: true, timeout: 6000 }
+      );
+    });
+  };
+
+  const getFallbackContacts = async () => {
+    if (!user) return [] as string[];
+
+    const { data } = await supabase
+      .from("emergency_contacts")
+      .select("phone,is_primary")
+      .eq("user_id", user.id);
+
+    const dbPhones = (data ?? []).map((c) => c.phone).filter(Boolean);
+    if (dbPhones.length > 0) return dbPhones;
+
+    // Backward compatibility: read older local-storage contacts if DB table/data is missing.
+    try {
+      const raw = localStorage.getItem(`${LEGACY_CONTACTS_KEY_PREFIX}${user.id}`);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as Array<{ phone?: string }>;
+      return parsed.map((c) => c.phone ?? "").filter(Boolean);
+    } catch {
+      return [];
     }
-    const locText = coords
+  };
+
+  const openSmsFallback = async (coords: { lat: number; lng: number } | null) => {
+    const phones = await getFallbackContacts();
+    if (phones.length === 0) {
+      toast.error("No emergency contacts found. Add contacts first.");
+      return false;
+    }
+
+    const locationText = coords
       ? `https://maps.google.com/?q=${coords.lat},${coords.lng}`
       : "Location unavailable";
-    const body = encodeURIComponent(
-      `🚨 EMERGENCY SOS from SafeHer. I need help. My location: ${locText}`
+    const message = encodeURIComponent(
+      `SOS ALERT from Safe Her. I need immediate help. My location: ${locationText}`
     );
-    const phones = contacts.map((c) => c.phone).join(",");
-    window.location.href = `sms:${phones}?body=${body}`;
+
+    window.location.href = `sms:${phones.join(",")}?body=${message}`;
+    toast.success(`Prepared SOS SMS for ${phones.length} contact(s). Tap send.`);
+    return true;
+  };
+
+  const sendSos = async () => {
+    if (!user || sending) return;
+    setSending(true);
+    setIsActive(true);
+
+    try {
+      const coords = await getCoords();
+      const { data, error } = await supabase.functions.invoke("sos-alert", {
+        body: {
+          locationLat: coords?.lat ?? null,
+          locationLng: coords?.lng ?? null,
+        },
+      });
+
+      if (error) {
+        const fallbackOk = await openSmsFallback(coords);
+        if (!fallbackOk) {
+          toast.error(error.message || "Failed to trigger SOS");
+          setIsActive(false);
+          return;
+        }
+        setAlertSent(true);
+        return;
+      }
+
+      if (data?.sentCount > 0) {
+        toast.success(`SOS sent to ${data.sentCount} contact(s).`);
+      } else {
+        const fallbackOk = await openSmsFallback(coords);
+        if (!fallbackOk) {
+          toast.error(data?.error || "SOS could not be sent.");
+          setIsActive(false);
+          return;
+        }
+        setAlertSent(true);
+        return;
+      }
+
+      setAlertSent(true);
+    } catch (error) {
+      const coords = await getCoords();
+      const fallbackOk = await openSmsFallback(coords);
+      if (!fallbackOk) {
+        toast.error("Failed to trigger SOS alert.");
+        setIsActive(false);
+      } else {
+        setAlertSent(true);
+      }
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const callPolice = () => {
+    window.location.href = "tel:112";
   };
 
   return (
     <>
       {/* Floating SOS Button */}
       <motion.button
-        onClick={() => setIsActive(true)}
+        onClick={sendSos}
         className="fixed bottom-24 right-4 z-50 w-16 h-16 rounded-full bg-sos flex items-center justify-center shadow-sos"
         whileTap={{ scale: 0.9 }}
         animate={{ scale: [1, 1.05, 1] }}
@@ -136,11 +159,11 @@ const SOSButton = () => {
                   animate={{ scale: [1, 1.1, 1] }}
                   transition={{ repeat: Infinity, duration: 1 }}
                 >
-                  <span className="text-6xl font-extrabold text-destructive-foreground">{countdown}</span>
+                  <ShieldAlert className="w-14 h-14 text-destructive-foreground" />
                 </motion.div>
                 <p className="text-xl font-bold text-destructive-foreground">Sending SOS Alert...</p>
                 <p className="text-destructive-foreground/80 text-sm max-w-sm">
-                  In {countdown}s we'll open your messaging app to text your primary contact with your live location.
+                  Sending emergency SMS now to your registered contacts with your latest location.
                 </p>
                 <button
                   onClick={cancelSOS}
@@ -161,30 +184,23 @@ const SOSButton = () => {
                 </div>
                 <p className="text-2xl font-bold text-destructive-foreground">🚨 SOS Triggered</p>
                 <p className="text-destructive-foreground/80 max-w-sm text-sm">
-                  Use the buttons below to call or text your contacts now.
+                  Your emergency contacts were alerted instantly.
                 </p>
 
                 <div className="flex flex-col gap-3 w-full max-w-xs mt-2">
                   <button
-                    onClick={callPrimary}
+                    onClick={callPolice}
                     className="flex items-center justify-center gap-2 px-6 py-3 rounded-full bg-destructive-foreground text-sos font-bold"
                   >
                     <Phone className="w-5 h-5" />
-                    Call Primary Contact
-                  </button>
-                  <button
-                    onClick={smsAll}
-                    className="flex items-center justify-center gap-2 px-6 py-3 rounded-full bg-destructive-foreground/20 text-destructive-foreground font-semibold backdrop-blur-sm"
-                  >
-                    <MessageSquare className="w-5 h-5" />
-                    SMS All Contacts
+                    Call 112 (Police)
                   </button>
                   <a
-                    href="tel:112"
+                    href="/contacts"
                     className="flex items-center justify-center gap-2 px-6 py-3 rounded-full bg-destructive-foreground/10 text-destructive-foreground font-semibold backdrop-blur-sm"
                   >
-                    <Phone className="w-5 h-5" />
-                    Call 112 (Police)
+                    <MessageSquare className="w-5 h-5" />
+                    Manage Emergency Contacts
                   </a>
                 </div>
 

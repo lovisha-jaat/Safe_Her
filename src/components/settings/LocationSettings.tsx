@@ -1,7 +1,9 @@
 import { MapPin, Share2, Navigation, Eye } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
+
+const STORAGE_KEY = "safeher.location.settings";
 
 const LocationSettings = () => {
   const [settings, setSettings] = useState({
@@ -11,12 +13,53 @@ const LocationSettings = () => {
     showOnMap: true,
   });
 
-  const toggle = (key: keyof typeof settings) => {
-    setSettings((prev) => {
-      const updated = { ...prev, [key]: !prev[key] };
-      toast.success("Location setting updated");
-      return updated;
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        setSettings((prev) => ({ ...prev, ...parsed }));
+      }
+    } catch {
+      // keep defaults
+    }
+  }, []);
+
+  const persist = (next: typeof settings) => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  };
+
+  const requestLocationPermission = async () => {
+    if (!("geolocation" in navigator)) {
+      toast.error("Location is not supported on this device");
+      return false;
+    }
+    const granted = await new Promise<boolean>((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        () => resolve(true),
+        () => resolve(false),
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
     });
+    if (!granted) {
+      toast.error("Location permission denied");
+      return false;
+    }
+    return true;
+  };
+
+  const toggle = async (key: keyof typeof settings) => {
+    const nextValue = !settings[key];
+
+    if (key === "liveTracking" && nextValue) {
+      const granted = await requestLocationPermission();
+      if (!granted) return;
+    }
+
+    const updated = { ...settings, [key]: nextValue };
+    setSettings(updated);
+    persist(updated);
+    toast.success("Location setting updated");
   };
 
   const items = [
@@ -39,7 +82,7 @@ const LocationSettings = () => {
               <p className="text-xs text-muted-foreground">{item.desc}</p>
             </div>
           </div>
-          <Switch checked={settings[item.key]} onCheckedChange={() => toggle(item.key)} />
+          <Switch checked={settings[item.key]} onCheckedChange={() => void toggle(item.key)} />
         </div>
       ))}
       <div className="bg-primary/5 rounded-xl p-4 mt-4">
