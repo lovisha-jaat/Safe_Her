@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { FileWarning, MapPin, Camera, Send, ChevronDown, Shield } from "lucide-react";
+import { FileWarning, MapPin, Camera, Send, ChevronDown, Shield, X, Image as ImageIcon, Video } from "lucide-react";
 import SOSButton from "@/components/SOSButton";
 import BottomNav from "@/components/BottomNav";
 import { useAuth } from "@/contexts/AuthContext";
@@ -12,8 +12,18 @@ const incidentTypes = [
   "Unsafe Area", "Poor Lighting", "Other",
 ];
 
+const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
+const MAX_FILES = 5;
+
+type EvidenceFile = {
+  file: File;
+  previewUrl: string;
+  kind: "image" | "video";
+};
+
 const ReportIncident = () => {
   const { user } = useAuth();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [type, setType] = useState("");
   const [description, setDescription] = useState("");
   const [isAnonymous, setIsAnonymous] = useState(true);
@@ -21,6 +31,8 @@ const ReportIncident = () => {
   const [loading, setLoading] = useState(false);
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
+  const [evidence, setEvidence] = useState<EvidenceFile[]>([]);
+  const [uploadProgress, setUploadProgress] = useState<string>("");
 
   const handleGetLocation = () => {
     if (!("geolocation" in navigator)) {
@@ -42,25 +54,98 @@ const ReportIncident = () => {
     );
   };
 
+  const handleFilesSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (!files.length) return;
+
+    const remaining = MAX_FILES - evidence.length;
+    if (files.length > remaining) {
+      toast.error(`You can attach up to ${MAX_FILES} files`);
+    }
+    const accepted: EvidenceFile[] = [];
+    for (const file of files.slice(0, remaining)) {
+      if (file.size > MAX_FILE_SIZE) {
+        toast.error(`${file.name} is larger than 20 MB`);
+        continue;
+      }
+      const isImage = file.type.startsWith("image/");
+      const isVideo = file.type.startsWith("video/");
+      if (!isImage && !isVideo) {
+        toast.error(`${file.name} is not a photo or video`);
+        continue;
+      }
+      accepted.push({
+        file,
+        previewUrl: URL.createObjectURL(file),
+        kind: isImage ? "image" : "video",
+      });
+    }
+    setEvidence((prev) => [...prev, ...accepted]);
+    // reset input so the same file can be re-picked
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const removeEvidence = (idx: number) => {
+    setEvidence((prev) => {
+      const next = [...prev];
+      const [removed] = next.splice(idx, 1);
+      if (removed) URL.revokeObjectURL(removed.previewUrl);
+      return next;
+    });
+  };
+
+  const uploadEvidence = async (): Promise<string[]> => {
+    if (!user || evidence.length === 0) return [];
+    const urls: string[] = [];
+    for (let i = 0; i < evidence.length; i++) {
+      const { file } = evidence[i];
+      setUploadProgress(`Uploading ${i + 1} of ${evidence.length}...`);
+      const ext = file.name.split(".").pop() || "bin";
+      const path = `${user.id}/${Date.now()}-${i}.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from("incident-evidence")
+        .upload(path, file, { contentType: file.type, upsert: false });
+      if (uploadError) {
+        console.error("Upload error:", uploadError);
+        throw new Error(`Failed to upload ${file.name}`);
+      }
+      urls.push(path);
+    }
+    setUploadProgress("");
+    return urls;
+  };
+
   const handleSubmit = async () => {
     if (!type || !description || !user) return;
     setLoading(true);
-    const { error } = await supabase.from("incident_reports").insert({
-      user_id: user.id,
-      incident_type: type,
-      description,
-      is_anonymous: isAnonymous,
-      location_lat: location?.lat ?? null,
-      location_lng: location?.lng ?? null,
-    });
+    try {
+      const evidence_urls = await uploadEvidence();
+      const { error } = await supabase.from("incident_reports").insert({
+        user_id: user.id,
+        incident_type: type,
+        description,
+        is_anonymous: isAnonymous,
+        location_lat: location?.lat ?? null,
+        location_lng: location?.lng ?? null,
+        evidence_urls,
+      });
 
-    if (error) {
-      console.error("Report submission error:", error);
-      toast.error("Failed to submit report. Please try again.");
-    } else {
-      setSubmitted(true);
+      if (error) {
+        console.error("Report submission error:", error);
+        toast.error("Failed to submit report. Please try again.");
+      } else {
+        // cleanup previews
+        evidence.forEach((e) => URL.revokeObjectURL(e.previewUrl));
+        setEvidence([]);
+        setSubmitted(true);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Upload failed";
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+      setUploadProgress("");
     }
-    setLoading(false);
   };
 
   if (submitted) {
@@ -188,10 +273,72 @@ const ReportIncident = () => {
             <label className="text-sm font-semibold text-card-foreground mb-2 block">
               Evidence (Optional)
             </label>
-            <button className="w-full flex items-center gap-3 px-4 py-6 rounded-xl border-2 border-dashed border-border">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,video/*"
+              multiple
+              onChange={handleFilesSelected}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={evidence.length >= MAX_FILES || loading}
+              className="w-full flex items-center justify-center gap-3 px-4 py-6 rounded-xl border-2 border-dashed border-border hover:border-primary/50 transition-colors disabled:opacity-50"
+            >
               <Camera className="w-5 h-5 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">Upload photos or videos</span>
+              <span className="text-sm text-muted-foreground">
+                {evidence.length >= MAX_FILES
+                  ? `Max ${MAX_FILES} files reached`
+                  : "Upload photos or videos"}
+              </span>
             </button>
+
+            {evidence.length > 0 && (
+              <div className="grid grid-cols-3 gap-2 mt-3">
+                {evidence.map((item, idx) => (
+                  <div
+                    key={idx}
+                    className="relative aspect-square rounded-xl overflow-hidden bg-secondary group"
+                  >
+                    {item.kind === "image" ? (
+                      <img
+                        src={item.previewUrl}
+                        alt={`evidence-${idx}`}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground">
+                        <Video className="w-6 h-6 mb-1" />
+                        <span className="text-[10px] truncate px-1 max-w-full">
+                          {item.file.name}
+                        </span>
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removeEvidence(idx)}
+                      className="absolute top-1 right-1 w-6 h-6 rounded-full bg-background/80 backdrop-blur flex items-center justify-center text-foreground hover:bg-destructive hover:text-destructive-foreground transition-colors"
+                      aria-label="Remove file"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                    <div className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded-md bg-background/80 backdrop-blur text-[10px] flex items-center gap-1">
+                      {item.kind === "image" ? (
+                        <ImageIcon className="w-3 h-3" />
+                      ) : (
+                        <Video className="w-3 h-3" />
+                      )}
+                      {(item.file.size / (1024 * 1024)).toFixed(1)}MB
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground mt-2">
+              Up to {MAX_FILES} files, 20 MB each. Photos & videos only.
+            </p>
           </div>
 
           {/* Submit */}
@@ -202,7 +349,7 @@ const ReportIncident = () => {
             className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl gradient-primary text-primary-foreground font-bold text-base shadow-soft disabled:opacity-50"
           >
             <Send className="w-5 h-5" />
-            {loading ? "Submitting..." : "Submit Report"}
+            {loading ? (uploadProgress || "Submitting...") : "Submit Report"}
           </motion.button>
         </div>
       </div>
