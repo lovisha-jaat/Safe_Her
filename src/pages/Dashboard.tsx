@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Shield, MapPin, Users, Bell, AlertTriangle, Navigation, TrendingDown, Eye, Sparkles, Phone } from "lucide-react";
+import { Shield, MapPin, Users, Bell, AlertTriangle, Navigation, TrendingDown, Eye, Sparkles, Phone, BookOpen } from "lucide-react";
 import SafetyScoreCard from "@/components/SafetyScoreCard";
 import QuickAction from "@/components/QuickAction";
 import SOSButton from "@/components/SOSButton";
