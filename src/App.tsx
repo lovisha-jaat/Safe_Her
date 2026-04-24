@@ -15,6 +15,7 @@ import FakeCall from "./pages/FakeCall.tsx";
 import Profile from "./pages/Profile.tsx";
 import AdminDashboard from "./pages/AdminDashboard.tsx";
 import AiAssistant from "./pages/AiAssistant.tsx";
+import Guide from "./pages/Guide.tsx";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
