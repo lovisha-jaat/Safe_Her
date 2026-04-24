@@ -26,7 +26,7 @@ const features = [
   {
     icon: AlertTriangle,
     title: "🚨 SOS Button",
-    body: "Tap the red SOS button on the Home screen. A 5-second countdown starts (tap Cancel to stop). After it ends, the app opens an SMS to your primary contact with a Google Maps link to your live location, then auto-calls them.",
+    body: "Tap the red SOS button on the Home screen. A 5-second countdown starts (tap Cancel to stop). After it ends, the app first tries automatic backend SMS delivery. If backend SMS is unavailable, it opens your SMS app with a prefilled SOS message so you can send quickly.",
     color: "text-unsafe",
   },
   {
@@ -76,11 +76,11 @@ const features = [
 const faqs = [
   {
     q: "What happens when I press SOS?",
-    a: "A 5-second countdown begins (you can cancel). After it finishes, the app opens your SMS app pre-filled with an emergency message and your Google Maps location link addressed to your primary emergency contact. Once you send the SMS, the app then triggers a phone call to that contact.",
+    a: "A 5-second countdown begins (you can cancel). After it finishes, the app tries to send SOS automatically from backend. If that fails, it opens your SMS app with a ready-to-send message and location link.",
   },
   {
     q: "Will SOS work without internet?",
-    a: "SMS and phone calls work over your cellular network — no internet needed. However, sharing a live Google Maps link requires location services to be on. The app falls back to an SMS-only message if location is unavailable.",
+    a: "Automatic backend SMS needs internet. If internet/backend delivery fails, the app falls back to your phone's SMS app so you can still send the alert manually.",
   },
   {
     q: "Who can see my reports?",
@@ -96,7 +96,7 @@ const faqs = [
   },
   {
     q: "How do I cancel an SOS?",
-    a: "Tap 'Cancel' on the countdown screen within 5 seconds. Once the countdown finishes, the SMS/call dialogs will open and you can choose not to send/call.",
+    a: "Tap 'Cancel' on the SOS screen within 5 seconds. Once the alert is sent, contacts are already notified.",
   },
 ];
 

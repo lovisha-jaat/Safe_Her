@@ -12,11 +12,13 @@ const SOSButton = () => {
   const [isActive, setIsActive] = useState(false);
   const [sending, setSending] = useState(false);
   const [alertSent, setAlertSent] = useState(false);
+  const [statusMessage, setStatusMessage] = useState("Preparing SOS...");
 
   const cancelSOS = () => {
     setIsActive(false);
     setAlertSent(false);
     setSending(false);
+    setStatusMessage("Preparing SOS...");
   };
 
   const getCoords = async () => {
@@ -41,7 +43,7 @@ const SOSButton = () => {
     const dbPhones = (data ?? []).map((c) => c.phone).filter(Boolean);
     if (dbPhones.length > 0) return dbPhones;
 
-    // Backward compatibility: read older local-storage contacts if DB table/data is missing.
+    // Backward compatibility for users with older local contacts.
     try {
       const raw = localStorage.getItem(`${LEGACY_CONTACTS_KEY_PREFIX}${user.id}`);
       if (!raw) return [];
@@ -55,7 +57,6 @@ const SOSButton = () => {
   const openSmsFallback = async (coords: { lat: number; lng: number } | null) => {
     const phones = await getFallbackContacts();
     if (phones.length === 0) {
-      toast.error("No emergency contacts found. Add contacts first.");
       return false;
     }
 
@@ -67,7 +68,6 @@ const SOSButton = () => {
     );
 
     window.location.href = `sms:${phones.join(",")}?body=${message}`;
-    toast.success(`Prepared SOS SMS for ${phones.length} contact(s). Tap send.`);
     return true;
   };
 
@@ -75,6 +75,8 @@ const SOSButton = () => {
     if (!user || sending) return;
     setSending(true);
     setIsActive(true);
+    setAlertSent(false);
+    setStatusMessage("Sending emergency SMS to your registered contacts...");
 
     try {
       const coords = await getCoords();
@@ -87,25 +89,36 @@ const SOSButton = () => {
 
       if (error) {
         const fallbackOk = await openSmsFallback(coords);
-        if (!fallbackOk) {
-          toast.error(error.message || "Failed to trigger SOS");
-          setIsActive(false);
+        if (fallbackOk) {
+          setStatusMessage("Automatic send failed. SMS app opened with prefilled SOS message.");
+          toast.success("Opened SMS app. Tap send to alert contacts.");
+          setAlertSent(true);
           return;
         }
-        setAlertSent(true);
+
+        setStatusMessage("Failed to send SOS. Check internet, contacts, and Twilio setup.");
+        toast.error(error.message || "Failed to trigger SOS alert.");
         return;
       }
 
       if (data?.sentCount > 0) {
+        setStatusMessage(`SOS sent successfully to ${data.sentCount} contact(s).`);
         toast.success(`SOS sent to ${data.sentCount} contact(s).`);
       } else {
+        const detailedError =
+          (Array.isArray(data?.details) && data.details.length > 0 ? data.details[0] : null) ||
+          data?.error ||
+          "SOS could not be sent. Please verify contacts and Twilio.";
         const fallbackOk = await openSmsFallback(coords);
-        if (!fallbackOk) {
-          toast.error(data?.error || "SOS could not be sent.");
-          setIsActive(false);
+        if (fallbackOk) {
+          setStatusMessage("Automatic send failed. SMS app opened with prefilled SOS message.");
+          toast.success("Opened SMS app. Tap send to alert contacts.");
+          setAlertSent(true);
           return;
         }
-        setAlertSent(true);
+
+        setStatusMessage(detailedError);
+        toast.error(detailedError);
         return;
       }
 
@@ -113,12 +126,15 @@ const SOSButton = () => {
     } catch (error) {
       const coords = await getCoords();
       const fallbackOk = await openSmsFallback(coords);
-      if (!fallbackOk) {
-        toast.error("Failed to trigger SOS alert.");
-        setIsActive(false);
-      } else {
+      if (fallbackOk) {
+        setStatusMessage("Automatic send failed. SMS app opened with prefilled SOS message.");
+        toast.success("Opened SMS app. Tap send to alert contacts.");
         setAlertSent(true);
+        return;
       }
+
+      setStatusMessage("Failed to send SOS. Check internet, contacts, and Twilio setup.");
+      toast.error("Failed to trigger SOS alert.");
     } finally {
       setSending(false);
     }
@@ -163,7 +179,7 @@ const SOSButton = () => {
                 </motion.div>
                 <p className="text-xl font-bold text-destructive-foreground">Sending SOS Alert...</p>
                 <p className="text-destructive-foreground/80 text-sm max-w-sm">
-                  Sending emergency SMS now to your registered contacts with your latest location.
+                  {statusMessage}
                 </p>
                 <button
                   onClick={cancelSOS}
@@ -184,7 +200,7 @@ const SOSButton = () => {
                 </div>
                 <p className="text-2xl font-bold text-destructive-foreground">🚨 SOS Triggered</p>
                 <p className="text-destructive-foreground/80 max-w-sm text-sm">
-                  Your emergency contacts were alerted instantly.
+                  {statusMessage}
                 </p>
 
                 <div className="flex flex-col gap-3 w-full max-w-xs mt-2">

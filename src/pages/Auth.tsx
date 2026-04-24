@@ -1,13 +1,14 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Shield, Mail, Phone, Eye, EyeOff } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable/index";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
 
 const Auth = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [method, setMethod] = useState<"email" | "phone">("email");
   const [email, setEmail] = useState("");
@@ -18,6 +19,12 @@ const Auth = () => {
   const [otpSent, setOtpSent] = useState(false);
   const [otp, setOtp] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [user, navigate]);
 
   const handleEmailAuth = async () => {
     setLoading(true);
@@ -88,15 +95,25 @@ const Auth = () => {
   const handleGoogleSignIn = async () => {
     setLoading(true);
     try {
-      const result = await lovable.auth.signInWithOAuth("google", {
-        redirect_uri: window.location.origin,
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/auth`,
+          skipBrowserRedirect: true,
+        },
       });
-      if (result.error) {
-        toast.error(result.error.message || "Google sign-in failed");
+
+      if (error) {
+        toast.error(error.message || "Google sign-in failed");
         return;
       }
-      if (result.redirected) return;
-      navigate("/dashboard");
+
+      if (!data?.url) {
+        toast.error("Google sign-in did not return a redirect URL");
+        return;
+      }
+
+      window.location.assign(data.url);
     } catch (error: any) {
       toast.error(error.message);
     } finally {

@@ -112,6 +112,7 @@ serve(async (req) => {
     const basicAuth = btoa(`${twilioAccountSid}:${twilioAuthToken}`);
     let sentCount = 0;
     let failedCount = 0;
+    const failureReasons: string[] = [];
 
     for (const to of uniquePhones) {
       const form = new URLSearchParams({
@@ -133,7 +134,11 @@ serve(async (req) => {
       );
 
       if (response.ok) sentCount += 1;
-      else failedCount += 1;
+      else {
+        failedCount += 1;
+        const errText = await response.text();
+        failureReasons.push(`SMS to ${to} failed (${response.status}): ${errText.slice(0, 220)}`);
+      }
     }
 
     await db.from("sos_alert_logs").insert({
@@ -152,6 +157,10 @@ serve(async (req) => {
         ok: failedCount === 0,
         sentCount,
         failedCount,
+        error: failedCount > 0
+          ? "Twilio could not send one or more messages. Check Twilio trial recipient verification and phone number format with country code."
+          : null,
+        details: failureReasons,
       }),
       {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
