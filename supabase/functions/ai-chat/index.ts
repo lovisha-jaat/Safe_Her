@@ -122,20 +122,12 @@ serve(async (req) => {
     if (geminiModel.startsWith("models/")) {
       geminiModel = geminiModel.replace("models/", "");
     }
-
-    // Force gemini-1.5-flash if an invalid or experimental model name is provided
-    if (geminiModel.includes("gemini-3") || geminiModel.includes("gemini-2")) {
-      geminiModel = "gemini-1.5-flash";
-    }
     
     const requestBody = {
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: `SYSTEM INSTRUCTION: ${SYSTEM_PROMPT}\n\nUser is now starting the conversation.` }]
-        },
-        ...contents
-      ],
+      system_instruction: {
+        parts: [{ text: SYSTEM_PROMPT }]
+      },
+      contents: contents,
       generationConfig: {
         temperature: 0.4,
         maxOutputTokens: 1000,
@@ -167,7 +159,7 @@ serve(async (req) => {
 
     while (attempts < maxAttempts) {
       geminiResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1/models/${geminiModel}:generateContent?key=${geminiApiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiApiKey}`,
         {
           method: "POST",
           headers: {
