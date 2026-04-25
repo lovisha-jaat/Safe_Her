@@ -91,7 +91,17 @@ serve(async (req) => {
         parts: [{ text: m.content.slice(0, 1000) }],
       }));
 
-    const geminiModel = Deno.env.get("GEMINI_MODEL") || "gemini-2.5-flash";
+    // Merge consecutive messages with the same role for Gemini API
+    const contents = [];
+    for (const m of messages) {
+      if (contents.length > 0 && contents[contents.length - 1].role === m.role) {
+        contents[contents.length - 1].parts[0].text += "\n" + m.parts[0].text;
+      } else {
+        contents.push(m);
+      }
+    }
+
+    const geminiModel = Deno.env.get("GEMINI_MODEL") || "gemini-1.5-flash";
 
     const geminiResponse = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiApiKey}`,
@@ -101,13 +111,10 @@ serve(async (req) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          contents: [
-            {
-              role: "user",
-              parts: [{ text: SYSTEM_PROMPT }],
-            },
-            ...messages,
-          ],
+          system_instruction: {
+            parts: [{ text: SYSTEM_PROMPT }],
+          },
+          contents: contents,
           generationConfig: {
             temperature: 0.4,
             maxOutputTokens: 300,
