@@ -116,13 +116,8 @@ serve(async (req) => {
       });
     }
 
-    let geminiModel = (Deno.env.get("GEMINI_MODEL") || "gemini-1.5-flash").trim();
+    const geminiModel = Deno.env.get("GEMINI_MODEL") || "gemini-1.5-flash";
     
-    // Ensure the model name doesn't include the 'models/' prefix as it's added in the URL
-    if (geminiModel.startsWith("models/")) {
-      geminiModel = geminiModel.replace("models/", "");
-    }
-
     const requestBody = {
       system_instruction: {
         parts: [{ text: SYSTEM_PROMPT }],
@@ -152,16 +147,29 @@ serve(async (req) => {
       ],
     };
 
-    const geminiResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiApiKey}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(requestBody),
-      }
-    );
+    // Attempt the request with a simple retry for 429 errors
+    let geminiResponse;
+    let attempts = 0;
+    const maxAttempts = 2;
+
+    while (attempts < maxAttempts) {
+      geminiResponse = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiApiKey}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(requestBody),
+        }
+      );
+
+      if (geminiResponse.status !== 429) break;
+      
+      // Wait 1 second before retrying on rate limit
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      attempts++;
+    }
 
     if (!geminiResponse.ok) {
       const raw = await geminiResponse.text();
