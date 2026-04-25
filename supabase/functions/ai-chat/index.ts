@@ -83,7 +83,8 @@ serve(async (req) => {
         (m: any) =>
           m &&
           (m.role === "user" || m.role === "assistant") &&
-          typeof m.content === "string"
+          typeof m.content === "string" &&
+          m.content.trim().length > 0
       )
       .slice(-10)
       .map((m: any) => ({
@@ -92,7 +93,7 @@ serve(async (req) => {
       }));
 
     // Merge consecutive messages with the same role for Gemini API
-    const contents = [];
+    let contents = [];
     for (const m of messages) {
       if (contents.length > 0 && contents[contents.length - 1].role === m.role) {
         contents[contents.length - 1].parts[0].text += "\n" + m.parts[0].text;
@@ -101,7 +102,53 @@ serve(async (req) => {
       }
     }
 
-    const geminiModel = Deno.env.get("GEMINI_MODEL") || "gemini-1.5-flash";
+    // Gemini API requires the conversation to start with a 'user' message
+    while (contents.length > 0 && contents[0].role !== "user") {
+      contents.shift();
+    }
+
+    if (contents.length === 0) {
+      return new Response(JSON.stringify({ error: "No valid user messages found" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    let geminiModel = (Deno.env.get("GEMINI_MODEL") || "gemini-1.5-flash").trim();
+    
+    // Ensure the model name doesn't include the 'models/' prefix as it's added in the URL
+    if (geminiModel.startsWith("models/")) {
+      geminiModel = geminiModel.replace("models/", "");
+    }
+
+    const requestBody = {
+      system_instruction: {
+        parts: [{ text: SYSTEM_PROMPT }],
+      },
+      contents: contents,
+      generationConfig: {
+        temperature: 0.4,
+        maxOutputTokens: 1000,
+      },
+      safetySettings: [
+        {
+          category: "HARM_CATEGORY_HARASSMENT",
+          threshold: "BLOCK_NONE",
+        },
+        {
+          category: "HARM_CATEGORY_HATE_SPEECH",
+          threshold: "BLOCK_NONE",
+        },
+        {
+          category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+          threshold: "BLOCK_NONE",
+        },
+        {
+          category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+          threshold: "BLOCK_NONE",
+        },
+      ],
+    };
 
     const geminiResponse = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiApiKey}`,
@@ -110,27 +157,26 @@ serve(async (req) => {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          system_instruction: {
-            parts: [{ text: SYSTEM_PROMPT }],
-          },
-          contents: contents,
-          generationConfig: {
-            temperature: 0.4,
-            maxOutputTokens: 300,
-          },
-        }),
+        body: JSON.stringify(requestBody),
       }
     );
 
-    const raw = await geminiResponse.text();
-
     if (!geminiResponse.ok) {
+      const raw = await geminiResponse.text();
       console.error("Gemini error:", geminiResponse.status, raw);
+      let errorDetail = `Gemini error ${geminiResponse.status}`;
+      try {
+        const errorJson = JSON.parse(raw);
+        if (errorJson.error?.message) {
+          errorDetail = errorJson.error.message;
+        }
+      } catch (e) {
+        // use default errorDetail
+      }
 
       return new Response(
         JSON.stringify({
-          error: `Gemini error ${geminiResponse.status}`,
+          error: errorDetail,
         }),
         {
           status: 500,
@@ -139,15 +185,11 @@ serve(async (req) => {
       );
     }
 
-    const geminiData = JSON.parse(raw);
-
-    const text =
-      geminiData?.candidates?.[0]?.content?.parts
-        ?.map((p: any) => p.text || "")
-        .join("")
-        .trim() || "";
+    const geminiData = await geminiResponse.json();
+    const text = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
     if (!text) {
+      console.error("Empty Gemini response:", JSON.stringify(geminiData));
       return new Response(JSON.stringify({ error: "Empty AI response" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

@@ -93,6 +93,7 @@ const AiAssistant = () => {
         const fallbackJson = await resp.json().catch(() => null);
         const fallbackText =
           fallbackJson?.choices?.[0]?.message?.content ||
+          fallbackJson?.candidates?.[0]?.content?.parts?.[0]?.text ||
           fallbackJson?.message ||
           fallbackJson?.text ||
           "";
@@ -123,12 +124,11 @@ const AiAssistant = () => {
 
         let newlineIndex: number;
         while ((newlineIndex = textBuffer.indexOf("\n")) !== -1) {
-          let line = textBuffer.slice(0, newlineIndex);
+          let line = textBuffer.slice(0, newlineIndex).trim();
           textBuffer = textBuffer.slice(newlineIndex + 1);
-          if (line.endsWith("\r")) line = line.slice(0, -1);
-          if (line.startsWith(":") || line.trim() === "") continue;
-          if (!line.startsWith("data: ")) continue;
-          const jsonStr = line.slice(6).trim();
+          if (line.startsWith(":") || line === "") continue;
+          if (!line.startsWith("data:")) continue;
+          const jsonStr = line.replace(/^data:\s*/, "").trim();
           if (jsonStr === "[DONE]") {
             streamDone = true;
             break;
@@ -138,10 +138,12 @@ const AiAssistant = () => {
             const content =
               parsed?.choices?.[0]?.delta?.content ||
               parsed?.choices?.[0]?.message?.content ||
+              parsed?.candidates?.[0]?.content?.parts?.[0]?.text ||
               parsed?.text ||
               "";
             if (content) upsert(content);
           } catch {
+            // Partial JSON or unexpected format, keep it in buffer
             textBuffer = line + "\n" + textBuffer;
             break;
           }
@@ -160,6 +162,7 @@ const AiAssistant = () => {
           const parsed = JSON.parse(remaining);
           extracted =
             parsed?.choices?.[0]?.message?.content ||
+            parsed?.candidates?.[0]?.content?.parts?.[0]?.text ||
             parsed?.message ||
             parsed?.text ||
             "";
@@ -172,15 +175,16 @@ const AiAssistant = () => {
           const lines = remaining
             .split("\n")
             .map((l) => l.trim())
-            .filter((l) => l.startsWith("data: "));
+            .filter((l) => l.startsWith("data:"));
           for (const line of lines) {
-            const jsonStr = line.slice(6).trim();
+            const jsonStr = line.replace(/^data:\s*/, "").trim();
             if (!jsonStr || jsonStr === "[DONE]") continue;
             try {
               const parsed = JSON.parse(jsonStr);
               const chunk =
                 parsed?.choices?.[0]?.delta?.content ||
                 parsed?.choices?.[0]?.message?.content ||
+                parsed?.candidates?.[0]?.content?.parts?.[0]?.text ||
                 parsed?.text ||
                 "";
               if (chunk) extracted += chunk;
