@@ -1,6 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Phone, PhoneOff, User } from "lucide-react";
+
+const ANDROID_RINGTONE_SRC = "/ringtones/vivo_classic.mp3";
 
 const FakeCallDialog = () => {
   const [callerName, setCallerName] = useState("Mom");
@@ -8,8 +10,15 @@ const FakeCallDialog = () => {
   const [isRinging, setIsRinging] = useState(false);
   const [isAnswered, setIsAnswered] = useState(false);
   const [countdown, setCountdown] = useState(0);
+  const [audioError, setAudioError] = useState("");
+
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const ringtoneAudioRef = useRef<HTMLAudioElement | null>(null);
+  const ringtoneIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const ringtoneTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const startFakeCall = () => {
+    setAudioError("");
     setCountdown(delay);
   };
 
@@ -27,9 +36,119 @@ const FakeCallDialog = () => {
   }, [countdown]);
 
   const endCall = () => {
+    stopRingtone();
     setIsRinging(false);
     setIsAnswered(false);
   };
+
+  const stopRingtone = () => {
+    if (ringtoneAudioRef.current) {
+      ringtoneAudioRef.current.pause();
+      ringtoneAudioRef.current.currentTime = 0;
+    }
+    if (ringtoneIntervalRef.current) {
+      clearInterval(ringtoneIntervalRef.current);
+      ringtoneIntervalRef.current = null;
+    }
+    if (ringtoneTimeoutRef.current) {
+      clearTimeout(ringtoneTimeoutRef.current);
+      ringtoneTimeoutRef.current = null;
+    }
+  };
+
+  const playRingtoneBurst = () => {
+    if (!audioContextRef.current) return;
+
+    const context = audioContextRef.current;
+    const now = context.currentTime;
+    const burstDuration = 0.85;
+
+    // Classic telephone ring uses dual tones around 440Hz and 480Hz.
+    const toneA = context.createOscillator();
+    const toneB = context.createOscillator();
+    const gainNode = context.createGain();
+    const filterNode = context.createBiquadFilter();
+
+    toneA.type = "sine";
+    toneB.type = "sine";
+    toneA.frequency.setValueAtTime(440, now);
+    toneB.frequency.setValueAtTime(480, now);
+
+    filterNode.type = "bandpass";
+    filterNode.frequency.setValueAtTime(460, now);
+    filterNode.Q.value = 1.2;
+
+    // Ring burst envelope: quick attack, gentle decay.
+    gainNode.gain.setValueAtTime(0.0001, now);
+    gainNode.gain.linearRampToValueAtTime(0.12, now + 0.03);
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, now + burstDuration);
+
+    toneA.connect(filterNode);
+    toneB.connect(filterNode);
+    filterNode.connect(gainNode);
+    gainNode.connect(context.destination);
+
+    toneA.start(now);
+    toneB.start(now);
+    toneA.stop(now + burstDuration);
+    toneB.stop(now + burstDuration);
+  };
+
+  const startRingtone = async () => {
+    if (!ringtoneAudioRef.current) {
+      ringtoneAudioRef.current = new Audio(ANDROID_RINGTONE_SRC);
+      ringtoneAudioRef.current.loop = true;
+      ringtoneAudioRef.current.preload = "auto";
+    }
+
+    try {
+      await ringtoneAudioRef.current.play();
+      return;
+    } catch {
+      // Fallback to generated ringtone when no mp3 exists
+      // or autoplay is blocked.
+    }
+
+    if (!audioContextRef.current) {
+      try {
+        audioContextRef.current = new window.AudioContext();
+      } catch {
+        setAudioError("Add an mp3 at /public/ringtones/android.mp3 for real ringtone.");
+        return;
+      }
+    }
+
+    if (audioContextRef.current.state === "suspended") {
+      await audioContextRef.current.resume();
+    }
+
+    stopRingtone();
+    playRingtoneBurst();
+    ringtoneTimeoutRef.current = setTimeout(playRingtoneBurst, 1050);
+    ringtoneIntervalRef.current = setInterval(() => {
+      playRingtoneBurst();
+      ringtoneTimeoutRef.current = setTimeout(playRingtoneBurst, 1050);
+    }, 4200);
+  };
+
+  useEffect(() => {
+    return () => {
+      stopRingtone();
+      ringtoneAudioRef.current = null;
+      if (audioContextRef.current) {
+        void audioContextRef.current.close();
+        audioContextRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isRinging && !isAnswered) {
+      void startRingtone();
+    } else {
+      stopRingtone();
+    }
+  }, [isRinging, isAnswered]);
 
   return (
     <div className="min-h-screen bg-background pb-20">
@@ -73,6 +192,7 @@ const FakeCallDialog = () => {
           >
             {countdown > 0 ? `Call in ${countdown}s...` : "Start Fake Call"}
           </motion.button>
+          {audioError && <p className="text-xs text-muted-foreground text-center">{audioError}</p>}
         </div>
       </div>
 
@@ -104,7 +224,10 @@ const FakeCallDialog = () => {
               {!isAnswered && (
                 <motion.button
                   whileTap={{ scale: 0.9 }}
-                  onClick={() => setIsAnswered(true)}
+                  onClick={() => {
+                    stopRingtone();
+                    setIsAnswered(true);
+                  }}
                   className="w-16 h-16 rounded-full bg-safe flex items-center justify-center"
                 >
                   <Phone className="w-7 h-7 text-primary-foreground" />

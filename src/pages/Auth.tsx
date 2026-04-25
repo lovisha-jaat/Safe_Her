@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Shield, Mail, Phone, Eye, EyeOff } from "lucide-react";
+import { Shield, Mail, Eye, EyeOff } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -10,14 +10,10 @@ const Auth = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [mode, setMode] = useState<"login" | "signup">("login");
-  const [method, setMethod] = useState<"email" | "phone">("email");
   const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [otpSent, setOtpSent] = useState(false);
-  const [otp, setOtp] = useState("");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -45,46 +41,6 @@ const Auth = () => {
         if (error) throw error;
         navigate("/dashboard");
       }
-    } catch (error: any) {
-      toast.error(error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handlePhoneSendOtp = async () => {
-    setLoading(true);
-    try {
-      if (mode === "signup") {
-        const { error } = await supabase.auth.signUp({
-          phone,
-          password,
-          options: { data: { full_name: fullName } },
-        });
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.auth.signInWithOtp({ phone });
-        if (error) throw error;
-      }
-      setOtpSent(true);
-      toast.success("OTP sent to your phone!");
-    } catch (error: any) {
-      toast.error(error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleVerifyOtp = async () => {
-    setLoading(true);
-    try {
-      const { error } = await supabase.auth.verifyOtp({
-        phone,
-        token: otp,
-        type: mode === "signup" ? "sms" : "sms",
-      });
-      if (error) throw error;
-      navigate("/dashboard");
     } catch (error: any) {
       toast.error(error.message);
     } finally {
@@ -160,24 +116,11 @@ const Auth = () => {
           <div className="flex-1 h-px bg-border" />
         </div>
 
-        {/* Method Toggle */}
-        <div className="flex gap-2 mb-4">
-          <button
-            onClick={() => { setMethod("email"); setOtpSent(false); }}
-            className={`flex-1 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-colors ${
-              method === "email" ? "gradient-primary text-primary-foreground" : "bg-card text-card-foreground"
-            }`}
-          >
+        {/* Email Sign In */}
+        <div className="mb-4">
+          <div className="w-full py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 gradient-primary text-primary-foreground">
             <Mail className="w-4 h-4" /> Email
-          </button>
-          <button
-            onClick={() => { setMethod("phone"); setOtpSent(false); }}
-            className={`flex-1 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-colors ${
-              method === "phone" ? "gradient-primary text-primary-foreground" : "bg-card text-card-foreground"
-            }`}
-          >
-            <Phone className="w-4 h-4" /> Phone
-          </button>
+          </div>
         </div>
 
         {/* Form */}
@@ -192,102 +135,45 @@ const Auth = () => {
             />
           )}
 
-          {method === "email" ? (
-            <>
-              <input
-                type="email"
-                placeholder="Email address"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-3 rounded-2xl bg-card shadow-card text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-              />
-              <div className="relative">
-                <input
-                  type={showPassword ? "text" : "password"}
-                  placeholder="Password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-3 rounded-2xl bg-card shadow-card text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary pr-12"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground"
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-              <button
-                onClick={handleEmailAuth}
-                disabled={loading || !email || !password}
-                className="w-full py-3 rounded-2xl gradient-primary text-primary-foreground text-sm font-semibold shadow-glow disabled:opacity-50"
-              >
-                {loading ? "Please wait..." : mode === "login" ? "Sign In" : "Create Account"}
-              </button>
-            </>
-          ) : (
-            <>
-              <input
-                type="tel"
-                placeholder="Phone number (e.g. +91...)"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className="w-full px-4 py-3 rounded-2xl bg-card shadow-card text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-              />
-              {mode === "signup" && !otpSent && (
-                <div className="relative">
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    placeholder="Password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full px-4 py-3 rounded-2xl bg-card shadow-card text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary pr-12"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              )}
-              {otpSent ? (
-                <>
-                  <input
-                    type="text"
-                    placeholder="Enter OTP"
-                    value={otp}
-                    onChange={(e) => setOtp(e.target.value)}
-                    className="w-full px-4 py-3 rounded-2xl bg-card shadow-card text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                    maxLength={6}
-                  />
-                  <button
-                    onClick={handleVerifyOtp}
-                    disabled={loading || !otp}
-                    className="w-full py-3 rounded-2xl gradient-primary text-primary-foreground text-sm font-semibold shadow-glow disabled:opacity-50"
-                  >
-                    {loading ? "Verifying..." : "Verify OTP"}
-                  </button>
-                </>
-              ) : (
-                <button
-                  onClick={handlePhoneSendOtp}
-                  disabled={loading || !phone}
-                  className="w-full py-3 rounded-2xl gradient-primary text-primary-foreground text-sm font-semibold shadow-glow disabled:opacity-50"
-                >
-                  {loading ? "Sending..." : "Send OTP"}
-                </button>
-              )}
-            </>
-          )}
+          <input
+            type="email"
+            placeholder="Email address"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full px-4 py-3 rounded-2xl bg-card shadow-card text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+          />
+          <div className="relative">
+            <input
+              type={showPassword ? "text" : "password"}
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-4 py-3 rounded-2xl bg-card shadow-card text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary pr-12"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground"
+            >
+              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+          <button
+            onClick={handleEmailAuth}
+            disabled={loading || !email || !password}
+            className="w-full py-3 rounded-2xl gradient-primary text-primary-foreground text-sm font-semibold shadow-glow disabled:opacity-50"
+          >
+            {loading ? "Please wait..." : mode === "login" ? "Sign In" : "Create Account"}
+          </button>
         </div>
 
         {/* Toggle mode */}
         <p className="text-center text-sm text-muted-foreground mt-6">
           {mode === "login" ? "Don't have an account?" : "Already have an account?"}{" "}
           <button
-            onClick={() => { setMode(mode === "login" ? "signup" : "login"); setOtpSent(false); }}
+            onClick={() => {
+              setMode(mode === "login" ? "signup" : "login");
+            }}
             className="text-primary font-semibold"
           >
             {mode === "login" ? "Sign Up" : "Sign In"}
