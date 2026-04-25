@@ -33,20 +33,33 @@ const AiAssistant = () => {
     if (!text.trim() || isLoading) return;
     const userMsg: Message = { role: "user", content: text.trim() };
     const allMessages = [...messages, userMsg];
-    setMessages(allMessages);
+    setMessages([...allMessages, { role: "assistant", content: "Thinking..." }]);
     setInput("");
     setIsLoading(true);
 
     let assistantSoFar = "";
+    const setAssistant = (content: string) => {
+      setMessages((prev) => {
+        if (prev.length === 0) return prev;
+        const last = prev[prev.length - 1];
+        if (last?.role === "assistant") {
+          return prev.map((m, i) => (i === prev.length - 1 ? { ...m, content } : m));
+        }
+        return [...prev, { role: "assistant", content }];
+      });
+    };
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) {
         toast.error("Please sign in to use the assistant");
+        setAssistant("Please sign in to use the assistant.");
         setIsLoading(false);
         return;
       }
 
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 30000);
       const resp = await fetch(CHAT_URL, {
         method: "POST",
         headers: {
@@ -54,30 +67,53 @@ const AiAssistant = () => {
           Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({ messages: allMessages }),
+        signal: controller.signal,
       });
+      window.clearTimeout(timeout);
 
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({ error: "Something went wrong" }));
-        toast.error(err.error || "Failed to get response");
+        const errorMessage =
+          err.error === "Internal server error"
+            ? "AI temporarily unavailable. Please try again in a few seconds."
+            : err.error || "Failed to get response";
+        toast.error(errorMessage);
+        setAssistant(errorMessage);
         setIsLoading(false);
         return;
       }
 
-      if (!resp.body) throw new Error("No response body");
+      if (!resp.body) {
+        setAssistant("Sorry, I could not read the AI response. Please try again.");
+        throw new Error("No response body");
+      }
+
+      const contentType = resp.headers.get("content-type") || "";
+      if (!contentType.includes("text/event-stream")) {
+        const fallbackJson = await resp.json().catch(() => null);
+        const fallbackText =
+          fallbackJson?.choices?.[0]?.message?.content ||
+          fallbackJson?.message ||
+          fallbackJson?.text ||
+          "";
+        if (fallbackText) {
+          setAssistant(fallbackText);
+        } else {
+          toast.error("Received unexpected AI response format");
+          setAssistant("Sorry, I could not generate a response right now. Please try again.");
+        }
+        setIsLoading(false);
+        return;
+      }
 
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let textBuffer = "";
+      let streamDone = false;
 
       const upsert = (chunk: string) => {
         assistantSoFar += chunk;
-        setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          if (last?.role === "assistant") {
-            return prev.map((m, i) => (i === prev.length - 1 ? { ...m, content: assistantSoFar } : m));
-          }
-          return [...prev, { role: "assistant", content: assistantSoFar }];
-        });
+        setAssistant(assistantSoFar.trim() ? assistantSoFar : "Thinking...");
       };
 
       while (true) {
@@ -93,20 +129,83 @@ const AiAssistant = () => {
           if (line.startsWith(":") || line.trim() === "") continue;
           if (!line.startsWith("data: ")) continue;
           const jsonStr = line.slice(6).trim();
-          if (jsonStr === "[DONE]") break;
+          if (jsonStr === "[DONE]") {
+            streamDone = true;
+            break;
+          }
           try {
             const parsed = JSON.parse(jsonStr);
-            const content = parsed.choices?.[0]?.delta?.content;
+            const content =
+              parsed?.choices?.[0]?.delta?.content ||
+              parsed?.choices?.[0]?.message?.content ||
+              parsed?.text ||
+              "";
             if (content) upsert(content);
           } catch {
             textBuffer = line + "\n" + textBuffer;
             break;
           }
         }
+        if (streamDone) break;
+      }
+
+      // Some providers may end stream without delta chunks.
+      // In that case, try to extract a final text payload and avoid silent failure.
+      if (!assistantSoFar.trim()) {
+        const remaining = textBuffer.trim();
+        let extracted = "";
+
+        // Handle plain JSON payloads that might arrive despite SSE content-type.
+        try {
+          const parsed = JSON.parse(remaining);
+          extracted =
+            parsed?.choices?.[0]?.message?.content ||
+            parsed?.message ||
+            parsed?.text ||
+            "";
+        } catch {
+          // ignore parse errors, we try other formats below
+        }
+
+        // Handle line-based SSE data payloads left in buffer.
+        if (!extracted && remaining.includes("data:")) {
+          const lines = remaining
+            .split("\n")
+            .map((l) => l.trim())
+            .filter((l) => l.startsWith("data: "));
+          for (const line of lines) {
+            const jsonStr = line.slice(6).trim();
+            if (!jsonStr || jsonStr === "[DONE]") continue;
+            try {
+              const parsed = JSON.parse(jsonStr);
+              const chunk =
+                parsed?.choices?.[0]?.delta?.content ||
+                parsed?.choices?.[0]?.message?.content ||
+                parsed?.text ||
+                "";
+              if (chunk) extracted += chunk;
+            } catch {
+              // keep scanning other lines
+            }
+          }
+        }
+
+        if (extracted.trim()) {
+          setAssistant(extracted.trim());
+        } else {
+          toast.error("AI returned an empty response. Please try again.");
+          setAssistant("Sorry, I received an empty response. Please ask again.");
+        }
       }
     } catch (e) {
       console.error(e);
-      toast.error("Failed to connect to AI assistant");
+      if (e instanceof DOMException && e.name === "AbortError") {
+        toast.error("AI request timed out. Please try again.");
+        setAssistant("Sorry, the request timed out. Please try again.");
+      } else {
+        toast.error("Failed to connect to AI assistant");
+        setAssistant("Sorry, I could not connect right now. Please try again.");
+      }
     } finally {
       setIsLoading(false);
     }
