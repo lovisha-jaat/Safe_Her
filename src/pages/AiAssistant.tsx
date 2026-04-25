@@ -1,14 +1,13 @@
-import { useState, useRef, useEffect } from "react";
-import { motion } from "framer-motion";
-import { Send, Bot, User, Sparkles, Shield, MapPin, Phone, AlertTriangle } from "lucide-react";
+import { Send, Bot, User, Sparkles, Shield, MapPin, Phone, AlertTriangle, Trash2, MoreVertical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import BottomNav from "@/components/BottomNav";
 import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
-type Message = { role: "user" | "assistant"; content: string };
+type Message = { id?: string; role: "user" | "assistant"; content: string };
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`;
 
@@ -24,6 +23,75 @@ const AiAssistant = () => {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    fetchHistory();
+  }, []);
+
+  const fetchHistory = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const { data, error } = await supabase
+        .from("ai_chat_history")
+        .select("*")
+        .order("created_at", { ascending: true });
+
+      if (error) {
+        console.error("Error fetching history:", error);
+        return;
+      }
+
+      if (data) {
+        setMessages(data.map(m => ({ id: m.id, role: m.role, content: m.content })));
+      }
+    } catch (err) {
+      console.error("Exception fetching history:", err);
+    }
+  };
+
+  const deleteMessage = async (id?: string) => {
+    if (!id) return;
+    try {
+      const { error } = await supabase
+        .from("ai_chat_history")
+        .delete()
+        .eq("id", id);
+
+      if (error) {
+        toast.error("Failed to delete message");
+        return;
+      }
+
+      setMessages(prev => prev.filter(m => m.id !== id));
+      toast.success("Message deleted");
+    } catch (err) {
+      console.error("Exception deleting message:", err);
+    }
+  };
+
+  const clearAllChat = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { error } = await supabase
+        .from("ai_chat_history")
+        .delete()
+        .eq("user_id", user.id);
+
+      if (error) {
+        toast.error("Failed to clear chat");
+        return;
+      }
+
+      setMessages([]);
+      toast.success("Chat history cleared");
+    } catch (err) {
+      console.error("Exception clearing chat:", err);
+    }
+  };
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -66,7 +134,7 @@ const AiAssistant = () => {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ messages: allMessages }),
+        body: JSON.stringify({ messages: allMessages.map(m => ({ role: m.role, content: m.content })) }),
         signal: controller.signal,
       });
       window.clearTimeout(timeout);
@@ -83,123 +151,14 @@ const AiAssistant = () => {
         return;
       }
 
-      if (!resp.body) {
-        setAssistant("Sorry, I could not read the AI response. Please try again.");
-        throw new Error("No response body");
-      }
-
-      const contentType = resp.headers.get("content-type") || "";
-      if (!contentType.includes("text/event-stream")) {
-        const fallbackJson = await resp.json().catch(() => null);
-        const fallbackText =
-          fallbackJson?.choices?.[0]?.message?.content ||
-          fallbackJson?.candidates?.[0]?.content?.parts?.[0]?.text ||
-          fallbackJson?.message ||
-          fallbackJson?.text ||
-          "";
-        if (fallbackText) {
-          setAssistant(fallbackText);
-        } else {
-          toast.error("Received unexpected AI response format");
-          setAssistant("Sorry, I could not generate a response right now. Please try again.");
-        }
-        setIsLoading(false);
-        return;
-      }
-
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let textBuffer = "";
-      let streamDone = false;
-
-      const upsert = (chunk: string) => {
-        assistantSoFar += chunk;
-        setAssistant(assistantSoFar.trim() ? assistantSoFar : "Thinking...");
-      };
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        textBuffer += decoder.decode(value, { stream: true });
-
-        let newlineIndex: number;
-        while ((newlineIndex = textBuffer.indexOf("\n")) !== -1) {
-          let line = textBuffer.slice(0, newlineIndex).trim();
-          textBuffer = textBuffer.slice(newlineIndex + 1);
-          if (line.startsWith(":") || line === "") continue;
-          if (!line.startsWith("data:")) continue;
-          const jsonStr = line.replace(/^data:\s*/, "").trim();
-          if (jsonStr === "[DONE]") {
-            streamDone = true;
-            break;
-          }
-          try {
-            const parsed = JSON.parse(jsonStr);
-            const content =
-              parsed?.choices?.[0]?.delta?.content ||
-              parsed?.choices?.[0]?.message?.content ||
-              parsed?.candidates?.[0]?.content?.parts?.[0]?.text ||
-              parsed?.text ||
-              "";
-            if (content) upsert(content);
-          } catch {
-            // Partial JSON or unexpected format, keep it in buffer
-            textBuffer = line + "\n" + textBuffer;
-            break;
-          }
-        }
-        if (streamDone) break;
-      }
-
-      // Some providers may end stream without delta chunks.
-      // In that case, try to extract a final text payload and avoid silent failure.
-      if (!assistantSoFar.trim()) {
-        const remaining = textBuffer.trim();
-        let extracted = "";
-
-        // Handle plain JSON payloads that might arrive despite SSE content-type.
-        try {
-          const parsed = JSON.parse(remaining);
-          extracted =
-            parsed?.choices?.[0]?.message?.content ||
-            parsed?.candidates?.[0]?.content?.parts?.[0]?.text ||
-            parsed?.message ||
-            parsed?.text ||
-            "";
-        } catch {
-          // ignore parse errors, we try other formats below
-        }
-
-        // Handle line-based SSE data payloads left in buffer.
-        if (!extracted && remaining.includes("data:")) {
-          const lines = remaining
-            .split("\n")
-            .map((l) => l.trim())
-            .filter((l) => l.startsWith("data:"));
-          for (const line of lines) {
-            const jsonStr = line.replace(/^data:\s*/, "").trim();
-            if (!jsonStr || jsonStr === "[DONE]") continue;
-            try {
-              const parsed = JSON.parse(jsonStr);
-              const chunk =
-                parsed?.choices?.[0]?.delta?.content ||
-                parsed?.choices?.[0]?.message?.content ||
-                parsed?.candidates?.[0]?.content?.parts?.[0]?.text ||
-                parsed?.text ||
-                "";
-              if (chunk) extracted += chunk;
-            } catch {
-              // keep scanning other lines
-            }
-          }
-        }
-
-        if (extracted.trim()) {
-          setAssistant(extracted.trim());
-        } else {
-          toast.error("AI returned an empty response. Please try again.");
-          setAssistant("Sorry, I received an empty response. Please ask again.");
-        }
+      const data = await resp.json();
+      if (data.text) {
+        setAssistant(data.text);
+        // Refresh history to get the new IDs from the database
+        setTimeout(fetchHistory, 500);
+      } else {
+        toast.error("AI returned an empty response. Please try again.");
+        setAssistant("Sorry, I received an empty response. Please ask again.");
       }
     } catch (e) {
       console.error(e);
@@ -219,19 +178,37 @@ const AiAssistant = () => {
     <div className="min-h-screen bg-background flex flex-col pb-20">
       {/* Header */}
       <div className="gradient-hero px-6 pt-12 pb-6 rounded-b-[2rem]">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-primary-foreground/20 flex items-center justify-center">
-            <Sparkles className="w-5 h-5 text-primary-foreground" />
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-primary-foreground/20 flex items-center justify-center">
+              <Sparkles className="w-5 h-5 text-primary-foreground" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-primary-foreground">SafeGuard AI</h1>
+              <p className="text-xs text-primary-foreground/70">Your personal safety assistant</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-xl font-bold text-primary-foreground">SafeGuard AI</h1>
-            <p className="text-xs text-primary-foreground/70">Your personal safety assistant</p>
-          </div>
+          
+          {messages.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="text-primary-foreground hover:bg-white/10">
+                  <MoreVertical className="w-5 h-5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={clearAllChat} className="text-destructive">
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Clear all chat
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </div>
 
       {/* Chat area */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {messages.length === 0 && (
           <div className="space-y-4 mt-4">
             <p className="text-sm text-muted-foreground text-center">
@@ -255,31 +232,45 @@ const AiAssistant = () => {
 
         {messages.map((msg, i) => (
           <motion.div
-            key={i}
+            key={msg.id || i}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className={`flex gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+            className={`flex group gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
           >
             {msg.role === "assistant" && (
               <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-1">
                 <Bot className="w-4 h-4 text-primary" />
               </div>
             )}
-            <div
-              className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm ${
-                msg.role === "user"
-                  ? "bg-primary text-primary-foreground rounded-br-md"
-                  : "bg-card text-card-foreground shadow-card rounded-bl-md"
-              }`}
-            >
-              {msg.role === "assistant" ? (
-                <div className="prose prose-sm max-w-none dark:prose-invert [&_p]:my-1 [&_ul]:my-1 [&_li]:my-0.5">
-                  <ReactMarkdown>{msg.content}</ReactMarkdown>
-                </div>
-              ) : (
-                msg.content
+            
+            <div className={`flex flex-col gap-1 ${msg.role === "user" ? "items-end" : "items-start"} max-w-[80%]`}>
+              <div
+                className={`rounded-2xl px-4 py-2.5 text-sm relative ${
+                  msg.role === "user"
+                    ? "bg-primary text-primary-foreground rounded-br-md"
+                    : "bg-card text-card-foreground shadow-card rounded-bl-md"
+                }`}
+              >
+                {msg.role === "assistant" ? (
+                  <div className="prose prose-sm max-w-none dark:prose-invert [&_p]:my-1 [&_ul]:my-1 [&_li]:my-0.5">
+                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  </div>
+                ) : (
+                  msg.content
+                )}
+              </div>
+              
+              {msg.id && (
+                <button
+                  onClick={() => deleteMessage(msg.id)}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:text-destructive text-muted-foreground"
+                  title="Delete message"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
               )}
             </div>
+
             {msg.role === "user" && (
               <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center shrink-0 mt-1">
                 <User className="w-4 h-4 text-primary-foreground" />

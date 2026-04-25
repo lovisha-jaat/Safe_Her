@@ -211,6 +211,22 @@ serve(async (req) => {
       });
     }
 
+    // Save history to database
+    try {
+      const { error: dbError } = await supabase
+        .from("ai_chat_history")
+        .insert([
+          { user_id: data.user.id, role: "user", content: messages[messages.length - 1].parts[0].text },
+          { user_id: data.user.id, role: "assistant", content: text }
+        ]);
+      
+      if (dbError) {
+        console.error("Error saving chat history:", dbError);
+      }
+    } catch (dbErr) {
+      console.error("Exception saving chat history:", dbErr);
+    }
+
     return new Response(JSON.stringify({ text }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
