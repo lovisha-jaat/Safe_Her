@@ -1,3 +1,5 @@
+import { useState, useRef, useEffect } from "react";
+import { motion } from "framer-motion";
 import { Send, Bot, User, Sparkles, Shield, MapPin, Phone, AlertTriangle, Trash2, MoreVertical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
