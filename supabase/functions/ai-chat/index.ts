@@ -118,9 +118,14 @@ serve(async (req) => {
 
     let geminiModel = (Deno.env.get("GEMINI_MODEL") || "gemini-1.5-flash").trim();
     
-    // Ensure the model name doesn't include the 'models/' prefix as it's added in the URL
+    // Ensure the model name doesn't include the 'models/' prefix
     if (geminiModel.startsWith("models/")) {
       geminiModel = geminiModel.replace("models/", "");
+    }
+
+    // Force gemini-1.5-flash if an invalid or experimental model name is provided
+    if (geminiModel.includes("gemini-3") || geminiModel.includes("gemini-2")) {
+      geminiModel = "gemini-1.5-flash";
     }
     
     const requestBody = {
@@ -155,7 +160,7 @@ serve(async (req) => {
     // Attempt the request with a simple retry for 429 errors
     let geminiResponse;
     let attempts = 0;
-    const maxAttempts = 2;
+    const maxAttempts = 3;
 
     while (attempts < maxAttempts) {
       geminiResponse = await fetch(
@@ -171,22 +176,29 @@ serve(async (req) => {
 
       if (geminiResponse.status !== 429) break;
       
-      // Wait 1 second before retrying on rate limit
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Wait longer on each retry (Exponential backoff)
+      const waitTime = Math.pow(2, attempts) * 1000;
+      await new Promise(resolve => setTimeout(resolve, waitTime));
       attempts++;
     }
 
     if (!geminiResponse.ok) {
       const raw = await geminiResponse.text();
       console.error("Gemini error:", geminiResponse.status, raw);
+      
       let errorDetail = `Gemini error ${geminiResponse.status}`;
-      try {
-        const errorJson = JSON.parse(raw);
-        if (errorJson.error?.message) {
-          errorDetail = errorJson.error.message;
+      
+      if (geminiResponse.status === 429) {
+        errorDetail = "The AI is currently receiving too many requests due to Google's Free Tier limits. Please wait a few seconds and try again.";
+      } else {
+        try {
+          const errorJson = JSON.parse(raw);
+          if (errorJson.error?.message) {
+            errorDetail = errorJson.error.message;
+          }
+        } catch (e) {
+          // use default errorDetail
         }
-      } catch (e) {
-        // use default errorDetail
       }
 
       return new Response(
@@ -194,7 +206,7 @@ serve(async (req) => {
           error: errorDetail,
         }),
         {
-          status: 500,
+          status: geminiResponse.status === 429 ? 429 : 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         }
       );
