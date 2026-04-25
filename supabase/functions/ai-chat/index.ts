@@ -24,7 +24,7 @@ SafeHer Features to reference:
 - 📞 **Fake Call**: Simulates a call to help escape uncomfortable situations.
 
 Mandatory Safety Protocol:
-- If a user expresses immediate danger, your FIRST sentence must advise calling local emergency services (e.g., 911, 100).`;
+- If a user expresses immediate danger, your FIRST sentence must advise calling local emergency services (e.g., **112** in India, **911** in USA). Always prioritize **112** as it is the universal emergency number in many regions including India.`;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
