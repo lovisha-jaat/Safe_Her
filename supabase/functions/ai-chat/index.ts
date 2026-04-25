@@ -129,10 +129,13 @@ serve(async (req) => {
     }
     
     const requestBody = {
-      system_instruction: {
-        parts: [{ text: SYSTEM_PROMPT }],
-      },
-      contents: contents,
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: `SYSTEM INSTRUCTION: ${SYSTEM_PROMPT}\n\nUser is now starting the conversation.` }]
+        },
+        ...contents
+      ],
       generationConfig: {
         temperature: 0.4,
         maxOutputTokens: 1000,
@@ -164,7 +167,7 @@ serve(async (req) => {
 
     while (attempts < maxAttempts) {
       geminiResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiApiKey}`,
+        `https://generativelanguage.googleapis.com/v1/models/${geminiModel}:generateContent?key=${geminiApiKey}`,
         {
           method: "POST",
           headers: {
