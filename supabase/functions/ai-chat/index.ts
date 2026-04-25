@@ -116,7 +116,12 @@ serve(async (req) => {
       });
     }
 
-    const geminiModel = Deno.env.get("GEMINI_MODEL") || "gemini-1.5-flash";
+    let geminiModel = (Deno.env.get("GEMINI_MODEL") || "gemini-1.5-flash").trim();
+    
+    // Ensure the model name doesn't include the 'models/' prefix as it's added in the URL
+    if (geminiModel.startsWith("models/")) {
+      geminiModel = geminiModel.replace("models/", "");
+    }
     
     const requestBody = {
       system_instruction: {
