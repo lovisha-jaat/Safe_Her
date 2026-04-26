@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, forwardRef, useImperativeHandle } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ShieldAlert, X, Phone, MessageSquare } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -7,12 +7,22 @@ import { supabase } from "@/integrations/supabase/client";
 
 const LEGACY_CONTACTS_KEY_PREFIX = "safeher.contacts.";
 
-const SOSButton = () => {
+export interface SOSButtonHandle {
+  triggerSOS: () => void;
+}
+
+const SOSButton = forwardRef<SOSButtonHandle>((props, ref) => {
   const { user } = useAuth();
   const [isActive, setIsActive] = useState(false);
   const [sending, setSending] = useState(false);
   const [alertSent, setAlertSent] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Preparing SOS...");
+
+  useImperativeHandle(ref, () => ({
+    triggerSOS: () => {
+      sendSos();
+    }
+  }));
 
   const cancelSOS = () => {
     setIsActive(false);
@@ -233,6 +243,6 @@ const SOSButton = () => {
       </AnimatePresence>
     </>
   );
-};
+});
 
 export default SOSButton;

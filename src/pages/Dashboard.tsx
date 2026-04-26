@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { Shield, MapPin, Users, Bell, AlertTriangle, Navigation, TrendingDown, Eye, Sparkles, Phone, BookOpen } from "lucide-react";
 import SafetyScoreCard from "@/components/SafetyScoreCard";
 import QuickAction from "@/components/QuickAction";
-import SOSButton from "@/components/SOSButton";
+import SOSButton, { SOSButtonHandle } from "@/components/SOSButton";
+import VoiceSOS from "@/components/VoiceSOS";
 import BottomNav from "@/components/BottomNav";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
@@ -19,6 +20,7 @@ const Dashboard = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [firstName, setFirstName] = useState("");
+  const sosButtonRef = useRef<SOSButtonHandle>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -36,6 +38,12 @@ const Dashboard = () => {
     };
     fetchName();
   }, [user]);
+
+  const handleTriggerSOS = () => {
+    if (sosButtonRef.current) {
+      sosButtonRef.current.triggerSOS();
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background pb-24">
@@ -65,6 +73,11 @@ const Dashboard = () => {
       </div>
 
       <div className="px-4 -mt-2">
+        {/* Voice SOS Feature */}
+        <section className="mt-6">
+          <VoiceSOS onTriggerSOS={handleTriggerSOS} />
+        </section>
+
         {/* Quick Actions */}
         <section className="mt-6">
           <h2 className="text-base font-bold text-foreground mb-3">Quick Actions</h2>
@@ -180,7 +193,7 @@ const Dashboard = () => {
         <Sparkles className="w-7 h-7 text-primary-foreground relative z-10" />
       </motion.button>
 
-      <SOSButton />
+      <SOSButton ref={sosButtonRef} />
       <BottomNav />
     </div>
   );
